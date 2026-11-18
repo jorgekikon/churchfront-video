@@ -85,6 +85,14 @@ try
     Check(Wait(() => atem.Link.Kind == LinkKind.Online && atem.State.Inputs.Count > 10), "connects to the switcher and reads its inputs");
     Check(OnMain(() => atem.State.Product).Contains("fake"), "reads the model");
     Check(OnMain(() => atem.State.ProgramOf(0) == 1 && atem.State.PreviewOf(0) == 2), "reads Live and Next");
+    // The probe's guarantee: read-only refuses every command before it can reach the switcher.
+    fakeLog.Clear();
+    var sentBefore = atem.CommandsSent;
+    OnMain(() => { atem.ReadOnly = true; atem.SetPreview(4); atem.Cut(); atem.SetAux(0, 4); return 0; });
+    Thread.Sleep(800);
+    Check(OnMain(() => atem.State.PreviewOf(0) == 2 && atem.State.ProgramOf(0) == 1) && atem.CommandsBlocked == 3 && atem.CommandsSent == sentBefore
+          && !fakeLog.Any(l => l.Contains("CPvI") || l.Contains("DCut") || l.Contains("CAuS")), "read-only refuses switcher commands before they go out");
+    OnMain(() => { atem.ReadOnly = false; return 0; });
     OnMain(() => { atem.SetPreview(3); return 0; });
     Check(Wait(() => atem.State.PreviewOf(0) == 3), "puts a source on Next");
     OnMain(() => { atem.Cut(); return 0; });

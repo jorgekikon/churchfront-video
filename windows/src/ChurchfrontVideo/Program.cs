@@ -27,6 +27,9 @@ public static class Program
 
         var booth = Booth.Shared;
         // Self-tests name their own switcher; otherwise the config file says where it is.
+        // The probe: a read-only look at a (real) switcher. Commands are refused before they can go out.
+        var probe = Probe.On;
+        if (probe) booth.Atem.ReadOnly = true;
         if (Environment.GetEnvironmentVariable("CUEVIDEO_HOST") is string host && host.Length > 0)
             booth.Atem.Connect(host, int.TryParse(Environment.GetEnvironmentVariable("CUEVIDEO_PORT"), out var p) ? p : 9910);
         if (Environment.GetEnvironmentVariable("CUEVIDEO_FAKECAMS") is string fake)
@@ -42,6 +45,10 @@ public static class Program
             booth.Ptz.Cameras = cams;
         }
         booth.Start();
+        // The probe without CUEVIDEO_HOST looks at the switcher named in the setup file (read,
+        // not applied: a self-test never connects to the file's switcher by itself).
+        if (probe && booth.Atem.Host.Length == 0 && booth.Store.Config.AtemHost.Trim() is { Length: > 0 } fileHost)
+            booth.Atem.Connect(fileHost, int.TryParse(Environment.GetEnvironmentVariable("CUEVIDEO_PORT"), out var fp) ? fp : 9910);
         Snapshots.Imaging = CanonFeedHub.Imaging;
         Snapshots.ToJpeg = Pictures.Jpeg;
 
@@ -51,12 +58,13 @@ public static class Program
         tracker.Pictures = new TrackPictures();
         StageScan.Shared.Images = new StillImages();
         tracker.Attach();
-        tracker.Unavailable = "Auto tracking is still starting up. Try again in a few seconds.";
-        Task.Run(() =>
-        {
-            var d = PoseDetector.Load(out var why);
-            MainThread.Post(() => { tracker.Detector = d; tracker.Unavailable = why; Detector = d; });
-        });
+        tracker.Unavailable = probe ? "Auto tracking is off during the switcher probe." : "Auto tracking is still starting up. Try again in a few seconds.";
+        if (!probe)
+            Task.Run(() =>
+            {
+                var d = PoseDetector.Load(out var why);
+                MainThread.Post(() => { tracker.Detector = d; tracker.Unavailable = why; Detector = d; });
+            });
 
         var win = new MainWindow();
         ControlTools.ShowWindow = w => win.ShowView(w);
@@ -84,23 +92,28 @@ public static class Program
         if (Environment.GetEnvironmentVariable("CUEVIDEO_SCREENSHOT") is string shot && shot.Length > 0)
         {
             var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-            t.Tick += (_, _) =>
-            {
-                try
-                {
-                    if (win.Content is not System.Windows.FrameworkElement root || root.ActualWidth < 1) return;
-                    var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
-                    rtb.Render(root);
-                    var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
-                    enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
-                    using var fs = File.Create(shot);
-                    enc.Save(fs);
-                }
-                catch (Exception e) { Log(e); }
-            };
+            t.Tick += (_, _) => SaveWindow(win, shot);
             t.Start();
         }
+        if (probe) Probe.Run(win);
         return app.Run();
+    }
+
+    /// <summary>Saves what the window shows as a PNG (works with the screen locked). False if it couldn't.</summary>
+    public static bool SaveWindow(Window win, string path)
+    {
+        try
+        {
+            if (win.Content is not System.Windows.FrameworkElement root || root.ActualWidth < 1) return false;
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap((int)root.ActualWidth, (int)root.ActualHeight, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+            rtb.Render(root);
+            var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+            using var fs = File.Create(path);
+            enc.Save(fs);
+            return true;
+        }
+        catch (Exception e) { Log(e); return false; }
     }
 
     /// <summary>The loaded pose model, for the Status page. Null until it loads, or if it can't.</summary>

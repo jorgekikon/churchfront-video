@@ -14,6 +14,7 @@ on real hardware and packaging.
       ChurchfrontVideo.sln
       build.ps1                 release build -> dist\ (two single-file exes, models\rtmo-s.onnx, zip). -Test runs the smoke test first.
       get-model.ps1             fetches auto tracking's pose model into models\ (git-ignored; see "Auto tracking")
+      probe.ps1                 a read-only look at the real switcher: prints everything it reports, changes nothing
       NuGet.config              nuget.org (this machine had no package source; self-contained publish needs runtime packs)
       src/CueATEM               engine, plain net8.0: ATEM.cs, PTZ.cs (VISCALink, CanonLink, PTZController),
                                 PTZModels.cs, CameraLogin.cs (Windows Credential Manager), SerialQueue.cs
@@ -30,7 +31,7 @@ on real hardware and packaging.
                                 SetupPage, ExposureWindow, CanonFeed (MJPEG), PoseDetector (RTMO through ONNX Runtime,
                                 TrackPictures, StillImages), Pictures (a source's picture: Canon or NDI),
                                 TopMonitors (top-bar previews), NdiPicker
-      tests/Smoke               95 checks against tools/FakeDevices (and a real NDI round trip when the
+      tests/Smoke               96 checks against tools/FakeDevices (and a real NDI round trip when the
                                 NDI runtime is installed). dotnet run --project tests/Smoke
       tests/TrackSim            closed loop with the real model and the fake Canon over photos:
                                 TrackSim.exe <photo with a person> [start pan degrees]   (auto tracking)
@@ -45,11 +46,12 @@ on real hardware and packaging.
 ## Done and checked (2026-11-17; stage scan, routing editor and NDI 2026-11-18)
 - Everything builds; `.\build.ps1` makes dist\ChurchfrontVideo.exe (83 MB, ONNX Runtime + DirectML inside)
   and dist\cuevideo-mcp.exe (34 MB), self-contained and compressed, dist\models\rtmo-s.onnx, plus a zip.
-- Smoke test: all 95 pass (config format both ways incl. Mac files, switching, fades, aux, DSK, macros,
+- Smoke test: all 96 pass (config format both ways incl. Mac files, switching, fades, aux, DSK, macros,
   VISCA + Canon control/presets/exposure/position, shots, Claude's tools incl. the Live guard, auto
   tracking's identity matching, body measures and tools with a stand-in model, the stage scan's
   geometry, grouping, scan_stage / label_stage_scan and following by name, the routing editor's rules,
-  and NDI: name matching, and with the runtime a real send/find/receive with alpha, an NDI snapshot and status).
+  NDI: name matching, and with the runtime a real send/find/receive with alpha, an NDI snapshot and status,
+  and the probe's read-only switcher refusing commands).
 - Ran the real app against FakeDevices: Operator view (monitors with the Canon picture, source tiles, shots
   grid, joystick, zoom, Fade/Cut/Black, key and route buttons), Full switcher, Setup tabs, Status.
   Keys 1-0, Shift+n, Space, arrows (stop on release, resent stop) and joystick drag all verified in the
@@ -121,8 +123,20 @@ on real hardware and packaging.
 - Log for tuning: %APPDATA%\CueVideo\Logs\tracking.csv (same columns as the Mac's).
 - Esc stops every tracking camera (the Mac's Command-period).
 
+## Switcher probe
+- `.\probe.ps1` (or CUEVIDEO_PROBE=1 on ChurchfrontVideo.exe), a port of the Mac's CUEVIDEO_PROBE: connects to
+  the switcher (-Switcher, else the setup file's atemHost), waits for its whole state, writes it down (model,
+  inputs, each M/E's program/preview/style/keys, DSKs, aux, macros, stream and record) to probe.txt with a
+  picture of the window, prints it, and quits (exit 1 if no switcher answers in 20 s). Output goes to
+  %APPDATA%\CueVideo\Logs\probe unless -Out is given.
+- Safe on the real switcher: ATEMClient.ReadOnly refuses every command before it can go out (Smoke checks
+  that, and the report counts commands sent: 0); cameras aren't connected, Claude's control server isn't
+  started, auto tracking's model isn't loaded, and the setup file and window preferences aren't written.
+  Against FakeDevices, the fake switcher received only the connection hello.
+
 ## Not done / not checked
-- Not tried against real hardware (ATEM, Canon, PTZOptics). Next step: a rehearsal, never during a service.
+- Not tried against real hardware (ATEM, Canon, PTZOptics). First step: `.\probe.ps1` on the booth computer
+  (read-only, safe any time; see "Switcher probe"). Then a rehearsal, never during a service.
 - Auto tracking with a real Canon and people walking: check the body-measure ratios (eyes to ankles 7.8x,
   eyes to hips 3.7x, measured on the Mac with Vision's joints), the clothes-colour identity on a real stage
   (crossing people, similar outfits), and the latency setting (0.45 s default) against the real preview delay.
@@ -155,7 +169,8 @@ on real hardware and packaging.
   CUEVIDEO_HOST/CUEVIDEO_PORT pick a switcher, CUEVIDEO_FAKECAMS=127.0.0.1 adds three VISCA cams,
   CUEVIDEO_VIEW=engineer:switcher opens a page, CUEVIDEO_CONFIG=<file> uses that setup file in full
   (cameras included, never written), CUEVIDEO_SCREENSHOT=<png> saves the window every 2 s (works with the
-  screen locked, when nothing is drawn on screen).
+  screen locked, when nothing is drawn on screen), CUEVIDEO_PROBE=1 runs the switcher probe (CUEVIDEO_PROBE_OUT
+  for its folder). Self-tests don't write the window preferences.
 - Manual test without touching the booth's setup: `FakeDevices.exe 9932 --canon --picture <photo>`, a test
   config with a Canon on 127.0.0.1:8091 (atemInput 2), then the app with CUEVIDEO_CONFIG, CUEVIDEO_HOST=127.0.0.1,
   CUEVIDEO_PORT=9932. Buttons can be pressed with Windows UI Automation (InvokePattern) on a locked screen.

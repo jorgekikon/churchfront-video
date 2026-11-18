@@ -151,6 +151,14 @@ public sealed class ATEMClient
     public Dictionary<int, bool> TbarAtTop { get; } = new();
     /// <summary>The last commands this app sent (or tried to send while offline), newest last.</summary>
     public List<ATEMLogEntry> SentLog { get; } = new();
+    /// <summary>Read-only (the probe): every command is refused here, before it can reach the
+    /// switcher, and counted. Connecting and acknowledging what the switcher sends still happen;
+    /// they change nothing on it.</summary>
+    public bool ReadOnly { get; set; }
+    private int _commandsSent, _commandsBlocked;
+    /// <summary>Commands that went out to the switcher, and ones refused because of ReadOnly.</summary>
+    public int CommandsSent => Volatile.Read(ref _commandsSent);
+    public int CommandsBlocked => Volatile.Read(ref _commandsBlocked);
     /// <summary>Raised on the main thread whenever anything above changes.</summary>
     public event Action? Changed;
 
@@ -505,9 +513,16 @@ public sealed class ATEMClient
 
     private void SendCommand(string name, byte[] data)
     {
+        if (ReadOnly)
+        {
+            Interlocked.Increment(ref _commandsBlocked);
+            Console.Error.WriteLine($"read-only: {name} not sent");
+            return;
+        }
         _queue.Post(() =>
         {
             bool ok = _connected && _ready;
+            if (ok) Interlocked.Increment(ref _commandsSent);
             var entry = new ATEMLogEntry { Time = DateTime.Now, Command = name, Data = data, Sent = ok };
             MainThread.Post(() =>
             {

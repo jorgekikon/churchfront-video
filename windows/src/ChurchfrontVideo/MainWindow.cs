@@ -93,6 +93,8 @@ public sealed class MainWindow : Window
         Deactivated += (_, _) => { B.ReleaseArrows(); B.Ptz.StopAllManual(); };
         Closing += (_, _) =>
         {
+            // A self-test (the probe, CUEVIDEO_ settings) leaves the operator's window settings alone.
+            if (B.Store.ReadOnly) return;
             B.Prefs.Maximized = WindowState == WindowState.Maximized;
             if (WindowState == WindowState.Normal) { B.Prefs.WindowWidth = Width; B.Prefs.WindowHeight = Height; }
             B.Prefs.Save();
