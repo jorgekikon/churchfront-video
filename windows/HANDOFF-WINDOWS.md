@@ -5,7 +5,7 @@ Scope for v1 ("core first"): ATEM switching, Operator view, PTZ joystick/zoom/sh
 (Canon HTTP + VISCA UDP/TCP), Canon live previews (MJPEG video.cgi), Engineer pages (Setup,
 Routing, Full switcher, Status), config.json in %APPDATA%\CueVideo, the 127.0.0.1:9911 control
 server and cuevideo-mcp.exe for Claude. Added since: auto tracking and the stage scan (Canon
-cameras). Later: NDI previews, the routing editor.
+cameras), and the routing editor. Later: NDI previews.
 
 ## Layout
 
@@ -19,13 +19,15 @@ cameras). Later: NDI previews, the routing editor.
       src/CueVideo.Core         net8.0: Config.cs (CueConfig + ConfigStore), Booth.cs, ControlTools.cs,
                                 ControlServer.cs, DeviceFinder.cs (ATEM hello, Canon info.cgi, mDNS), ClaudeConnect.cs, Snapshots.cs,
                                 Tracker.cs (AutoTracker, port of Tracker.swift), Identity.cs (Appearance, IdentityMatch),
-                                StageScan.cs (ShotMath, CanonState, StageScan, StageCast; port of StageScan.swift)
+                                StageScan.cs (ShotMath, CanonState, StageScan, StageCast; port of StageScan.swift),
+                                RoutingEdit.cs (the Routing page's rules: groups, aux ownership, buttons)
       src/CueVideoMcp           cuevideo-mcp.exe (port of Sources/CueVideoMCP/main.swift)
       src/ChurchfrontVideo      ChurchfrontVideo.exe, WPF in code (no XAML): Theme, Controls (Joystick, ZoomRocker,
-                                dialogs, LiveView), OperatorView, EngineerView (+ Stage scan, Routing, Switcher, Status),
+                                dialogs, LiveView), OperatorView, EngineerView (+ Stage scan, Switcher, Status),
+                                RoutingPage (schematic + editors, port of RoutingPatch.swift / Routing.swift),
                                 SetupPage, ExposureWindow, CanonFeed (MJPEG), PoseDetector (RTMO through ONNX Runtime,
                                 TrackPictures, StillImages)
-      tests/Smoke               77 checks against tools/FakeDevices. dotnet run --project tests/Smoke
+      tests/Smoke               86 checks against tools/FakeDevices. dotnet run --project tests/Smoke
       tests/TrackSim            closed loop with the real model and the fake Canon over photos:
                                 TrackSim.exe <photo with a person> [start pan degrees]   (auto tracking)
                                 TrackSim.exe scan <photo A> <photo B>                    (stage scan, labels, shots, follow by name)
@@ -34,13 +36,13 @@ cameras). Later: NDI previews, the routing editor.
                                 --picture <photo> (one or more, side by side): the Canon views a virtual stage
                                 through a real lens's geometry and really pans, tilts and zooms over it.
 
-## Done and checked (2026-11-17, stage scan 2026-11-18)
+## Done and checked (2026-11-17; stage scan and routing editor 2026-11-18)
 - Everything builds; `.\build.ps1` makes dist\ChurchfrontVideo.exe (83 MB, ONNX Runtime + DirectML inside)
   and dist\cuevideo-mcp.exe (34 MB), self-contained and compressed, dist\models\rtmo-s.onnx, plus a zip.
-- Smoke test: all 77 pass (config format both ways incl. Mac files, switching, fades, aux, DSK, macros,
+- Smoke test: all 86 pass (config format both ways incl. Mac files, switching, fades, aux, DSK, macros,
   VISCA + Canon control/presets/exposure/position, shots, Claude's tools incl. the Live guard, auto
-  tracking's identity matching, body measures and tools with a stand-in model, and the stage scan's
-  geometry, grouping, scan_stage / label_stage_scan and following by name).
+  tracking's identity matching, body measures and tools with a stand-in model, the stage scan's
+  geometry, grouping, scan_stage / label_stage_scan and following by name, and the routing editor's rules).
 - Ran the real app against FakeDevices: Operator view (monitors with the Canon picture, source tiles, shots
   grid, joystick, zoom, Fade/Cut/Black, key and route buttons), Full switcher, Setup tabs, Status.
   Keys 1-0, Shift+n, Space, arrows (stop on release, resent stop) and joystick drag all verified in the
@@ -57,6 +59,20 @@ cameras). Later: NDI previews, the routing editor.
   waist up, and following the second person by name turns to them, not the first. In the app: Engineer >
   Stage scan found both, names typed and saved, the shots appeared on Operator and framed the person, and
   Follow by name shows under Track.
+- Routing editor, in the app against the fake switcher with UI Automation: click a source then a destination
+  routes both outputs of a paired screen; the mix onto a screen; the locked Encoders and feeds refuses until
+  unlocked; Undo puts it back; folding groups; naming a spare output (Aux 4 → Lobby TVs) moves it to Screens;
+  saving the current routing as a button (an empty label or no screens is refused) and Run now. Dragging
+  with a real mouse wasn't tried here (the screen was locked): it uses WPF drag and drop on the same rows.
+
+## Routing editor (Windows)
+- Engineer > Routing is the Mac's schematic: mixes and inputs on the left, outputs on the right, a coloured
+  wire per routing, drawn from where WPF placed each row. Every row is a Button, so a click, a screen reader
+  or UI Automation can choose and route; dragging uses WPF drag and drop. The pencil on an output edits its
+  name, aux outputs (an aux belongs to one screen), wiring note, top-bar preview and "Show to operators";
+  operators' buttons are saved from the current routing, renamed, reordered, run and removed.
+- Encoders and feeds (screens hidden from operators) are locked until unlocked on the page, as on the Mac.
+- Not ported: the Mac's NDI picture pencil on a source (no NDI on Windows yet).
 
 ## Stage scan (Windows)
 - StageScan.swift ported as is: Canon cameras not on Live, not tracking and under control go to their Stage
@@ -93,8 +109,10 @@ cameras). Later: NDI previews, the routing editor.
 - mDNS in DeviceFinder is a hand-rolled one-shot query; check it finds NDI/PTZOptics devices on a real network.
 - Not on Windows yet (tools say so, descriptions mark them): NDI previews (list_ndi_sources, ndi fields kept
   in config; also what tracking and the stage scan would need for non-Canon cameras).
-- Routing page edits mix names and changes what screens show; screens and route buttons themselves are
-  edited in the setup file or by Claude (the Mac's RoutingPatch editor isn't ported).
+- Routing editor: drag and drop with a real mouse, and the page with a real switcher's many outputs and
+  patch bay names.
+- Group headings written in letter-spaced capitals (T.Caps) read to screen readers letter by letter
+  ("S p a r e  o u t p u t s"), across the app.
 - No installer or code signing: SmartScreen will warn on first run of the unsigned exe.
 - Windows Firewall will ask on first run (UDP to the switcher/cameras); allow on private networks.
 

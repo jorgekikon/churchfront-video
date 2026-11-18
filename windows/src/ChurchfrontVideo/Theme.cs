@@ -246,7 +246,9 @@ public static class T
     public static CheckBox Check(string label, bool on, Action<bool> changed)
     {
         var c = new CheckBox { Content = Text(label, 13), IsChecked = on, Foreground = Ink, VerticalContentAlignment = VerticalAlignment.Center, Focusable = false };
-        c.Click += (_, _) => changed(c.IsChecked == true);
+        // Checked/Unchecked, not Click: a screen reader or UI Automation ticks the box without clicking it.
+        c.Checked += (_, _) => changed(true);
+        c.Unchecked += (_, _) => changed(false);
         return c;
     }
 

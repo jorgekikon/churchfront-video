@@ -194,6 +194,26 @@ try
     r = Tool("stop_tracking", new JsonObject { ["all"] = true });
     Check(r["ok"] != null && Wait(() => fakeLog.Any(l => l.Contains("pan=stop"))), "stop_tracking stops the camera");
 
+    // MARK: Routing editor (the page itself was tried in the app with UI Automation)
+    var rc = new CueConfig { Screens = new() { new() { Name = "Side screens", Aux = new() { 1, 2 } }, new() { Name = "Lobby", Aux = new() { 3 }, Volunteer = false, Note = "Converter 1" } } };
+    Check(RoutingEdit.ParseAux("4, 5") is [4, 5] && RoutingEdit.ParseAux("4+5 0 x") is [4, 5], "reads aux outputs written as 4, 5 or 4+5");
+    Check(RoutingEdit.SaveScreen(rc, null, "Stage left", "2, 4", null) == null && rc.Screens.First(s => s.Name == "Side screens").Aux is [1]
+          && rc.Screens.Any(s => s.Name == "Stage left" && s.Aux is [2, 4]), "naming an output takes it away from the screen that had it");
+    Check(RoutingEdit.SaveScreen(rc, rc.Screens.First(s => s.Name == "Lobby"), "Lobby TVs", "3", "Converter 2") == null
+          && rc.Screens.First(s => s.Name == "Lobby TVs") is { Volunteer: false, Note: "Converter 2" }, "renaming a screen keeps whether operators see it");
+    RoutingEdit.SaveScreen(rc, null, "Everything", "1", null);
+    Check(!rc.Screens.Any(s => s.Name == "Side screens"), "a screen left with no outputs is dropped");
+    Check(RoutingEdit.SaveScreen(rc, null, " ", "1", null) != null && RoutingEdit.SaveScreen(rc, null, "X", "none", null) != null, "a name and an output are needed");
+    Check(RoutingEdit.IsSpare("Out 7 (PB 12)") && RoutingEdit.IsSpare("Patch bay 3") && !RoutingEdit.IsSpare("Lobby"), "patch bay ports are spare");
+    var rs = new ATEMState(); rs.Aux[0] = 3010; rs.Aux[2] = 4;
+    var groups = RoutingEdit.Destinations(rc, rs);
+    Check(groups.First(g => g.Group == RoutingEdit.Group.Feeds).Screens.Any(s => s.Name == "Lobby TVs"), "screens hidden from operators are encoders and feeds");
+    Check(RoutingEdit.SaveButton(rc, "Lobby: slides", new[] { rc.Screens.First(s => s.Name == "Lobby TVs").Id }, rs) == null
+          && rc.Routes.Single().Set is [{ Aux: 3, Source: 4 }], "a button saves what the chosen screens show now");
+    RoutingEdit.SaveButton(rc, "Everything", new[] { rc.Screens.First(s => s.Name == "Everything").Id }, rs);
+    RoutingEdit.MoveButton(rc, 1, -1);
+    Check(rc.Routes[0].Label == "Everything" && RoutingEdit.SaveButton(rc, "Empty", Array.Empty<string>(), rs) != null, "buttons move, and one that sets nothing is refused");
+
     // MARK: Stage scan (with the real model and a virtual stage: tests/TrackSim scan)
     var straight = ShotMath.Shot(new(0.5, 0.29), 0.21, new(10, 5, 40), 0.29, 0.21);
     Check(Math.Abs(straight.Pan - 10) < 0.01 && Math.Abs(straight.Tilt - 5) < 0.01 && Math.Abs(straight.Fov - 40) < 0.01, "a person already framed right needs no move");

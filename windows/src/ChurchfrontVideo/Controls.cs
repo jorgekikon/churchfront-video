@@ -161,7 +161,7 @@ public sealed class ZoomRocker : FrameworkElement
 /// <summary>Small dark dialogs: a question, a name to type, a message.</summary>
 public static class Dialogs
 {
-    private static Window Make(string title, double w)
+    internal static Window Make(string title, double w)
     {
         var win = new Window
         {
