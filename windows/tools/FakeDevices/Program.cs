@@ -12,12 +12,11 @@ using System.Windows.Media.Imaging;
 // ATEM on UDP <port> (9910), --cams: VISCA over IP cameras on UDP 52381-52383 that also answer
 // position and exposure inquiries, --canon: a Canon camera's HTTP interface on 127.0.0.1:8091
 // (open, claim, control, info and an MJPEG video.cgi). Prints every command received.
-//   --picture <photo>  the Canon looks at a virtual stage made from a photo with people in it,
-//                      and pans and tilts over it as told, for trying auto tracking.
+//   --picture <photo>  (one or more) the Canon looks at a virtual stage made from photos with people in them,
+//                      and pans, tilts and zooms over it as told, for trying auto tracking and the stage scan.
 
 var port = args.FirstOrDefault(a => int.TryParse(a, out _)) is string p ? int.Parse(p) : 9910;
-var pi = Array.IndexOf(args, "--picture");
-if (pi >= 0 && pi + 1 < args.Length) FakeCanon.Stage = args[pi + 1];
+for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "--picture") FakeCanon.Stage.Add(args[i + 1]);
 if (args.Contains("--cams")) FakeCams.Start();
 if (args.Contains("--canon")) FakeCanon.Start(8091);
 new Switcher(port).Run();
@@ -337,53 +336,71 @@ static class FakeCanon
         });
     }
 
-    /// <summary>--picture: a photo used as the stage. The camera sees a 40° window of a 60° wide
-    /// stage and really pans and tilts when told to (pan=left/right with pan.speed in hundredths
-    /// of a degree a second), so auto tracking can be tried in a closed loop.</summary>
-    public static string? Stage;
-    static double _vPan, _vTilt;          // degrees a second
+    /// <summary>--picture (one or more): photos side by side make an 80° wide stage. The camera
+    /// starts seeing a 40° window of it and really pans, tilts and zooms when told to (pan=left/right
+    /// with pan.speed in hundredths of a degree a second; zoom as the angle of view, or tele/wide),
+    /// so auto tracking and the stage scan can be tried in a closed loop.</summary>
+    public static List<string> Stage = new();
+    static double _vPan, _vTilt, _vZoom;          // degrees a second
     static readonly object Move = new();
+    const int ZoomMin = 300, ZoomMax = 7000, PanMax = 17000, TiltMax = 3000;
 
     static void MakeStageFrames()
     {
-        var src = new BitmapImage();
-        src.BeginInit(); src.UriSource = new Uri(Path.GetFullPath(Stage!)); src.CacheOption = BitmapCacheOption.OnLoad; src.EndInit();
-        // The photo is the middle of the stage; the rest is dark curtain.
-        const double stageDeg = 60, viewDeg = 40;
-        int sw = 1920, sh = 1080;
+        // The photos are the middle of the stage, side by side; the rest is dark curtain. One
+        // photo is 40° wide; more share about 70°.
+        const double stageDeg = 80;
+        int sw = 2560, sh = 1440;
         var dv0 = new DrawingVisual();
         using (var dc = dv0.RenderOpen())
         {
             dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(18, 18, 26)), null, new Rect(0, 0, sw, sh));
-            var pw = sw * viewDeg / stageDeg; var ph = pw * src.PixelHeight / src.PixelWidth;
-            dc.DrawImage(src, new Rect((sw - pw) / 2, (sh - ph) / 2, pw, ph));
+            var each = Stage.Count == 1 ? 40.0 : 70.0 / Stage.Count;
+            for (int i = 0; i < Stage.Count; i++)
+            {
+                var src = new BitmapImage();
+                src.BeginInit(); src.UriSource = new Uri(Path.GetFullPath(Stage[i])); src.CacheOption = BitmapCacheOption.OnLoad; src.EndInit();
+                var pw = sw * each / stageDeg; var ph = pw * src.PixelHeight / src.PixelWidth;
+                var centre = sw / 2 + (i - (Stage.Count - 1) / 2.0) * pw;
+                dc.DrawImage(src, new Rect(centre - pw / 2, (sh - ph) / 2, pw, ph));
+            }
         }
         var stage = new RenderTargetBitmap(sw, sh, 96, 96, PixelFormats.Pbgra32);
         stage.Render(dv0);
         stage.Freeze();
-        _zoom = (int)(viewDeg * 100);
+        var stagePx = new byte[sw * sh * 4];
+        stage.CopyPixels(stagePx, sw * 4, 0);
+        const int ow = 960, oh = 540;
+        var outPx = new byte[ow * oh * 4];
+        int[] cols = new int[ow], rows = new int[oh];
+        _zoom = 4000;
         var last = DateTime.UtcNow;
         while (true)
         {
             var now = DateTime.UtcNow; var dt = (now - last).TotalSeconds; last = now;
-            double panDeg, tiltDeg;
+            double panDeg, tiltDeg, viewDeg;
             lock (Move)
             {
-                _pan = (int)Math.Clamp(_pan + _vPan * dt * 100, -1000, 1000);
-                _tilt = (int)Math.Clamp(_tilt + _vTilt * dt * 100, -560, 560);
-                panDeg = _pan / 100.0; tiltDeg = _tilt / 100.0;
+                _pan = (int)Math.Clamp(_pan + _vPan * dt * 100, -PanMax, PanMax);
+                _tilt = (int)Math.Clamp(_tilt + _vTilt * dt * 100, -TiltMax, TiltMax);
+                _zoom = (int)Math.Clamp(_zoom + _vZoom * dt * 100, ZoomMin, ZoomMax);
+                panDeg = _pan / 100.0; tiltDeg = _tilt / 100.0; viewDeg = _zoom / 100.0;
             }
-            double degPx = stageDeg / sw, vw = viewDeg / degPx, vh = vw * 9 / 16;
-            var cx = sw / 2 + panDeg / degPx; var cy = sh / 2 - tiltDeg / degPx;
-            var dv = new DrawingVisual();
-            using (var dc = dv.RenderOpen())
-            {
-                dc.PushTransform(new ScaleTransform(960 / vw, 540 / vh));
-                dc.PushTransform(new TranslateTransform(-(cx - vw / 2), -(cy - vh / 2)));
-                dc.DrawImage(stage, new Rect(0, 0, sw, sh));
-            }
-            var bmp = new RenderTargetBitmap(960, 540, 96, 96, PixelFormats.Pbgra32);
-            bmp.Render(dv);
+            // The stage is a curved backdrop (each degree the same width) and the camera a real
+            // lens: a point x across the picture is atan(x · tan(half the view)) off its axis.
+            double degPx = stageDeg / sw, rad = Math.PI / 180, th = Math.Tan(viewDeg / 2 * rad), tv = th * 9 / 16;
+            for (int x = 0; x < ow; x++)
+                cols[x] = (int)Math.Round(sw / 2 + (panDeg + Math.Atan(((x + 0.5) / ow * 2 - 1) * th) / rad) / degPx);
+            for (int y = 0; y < oh; y++)
+                rows[y] = (int)Math.Round(sh / 2 - (tiltDeg + Math.Atan((1 - (y + 0.5) / oh * 2) * tv) / rad) / degPx);
+            for (int y = 0; y < oh; y++)
+                for (int x = 0; x < ow; x++)
+                {
+                    int o = (y * ow + x) * 4, c = cols[x], r = rows[y];
+                    if (c < 0 || c >= sw || r < 0 || r >= sh) { outPx[o] = 26; outPx[o + 1] = 18; outPx[o + 2] = 18; outPx[o + 3] = 255; continue; }
+                    Buffer.BlockCopy(stagePx, (r * sw + c) * 4, outPx, o, 4);
+                }
+            var bmp = BitmapSource.Create(ow, oh, 96, 96, PixelFormats.Pbgra32, null, outPx, ow * 4);
             var enc = new JpegBitmapEncoder { QualityLevel = 80 };
             enc.Frames.Add(BitmapFrame.Create(bmp));
             using var ms = new MemoryStream();
@@ -396,7 +413,7 @@ static class FakeCanon
     /// <summary>A moving test picture, as JPEG, ten times a second.</summary>
     static void MakeFrames()
     {
-        if (Stage != null) { MakeStageFrames(); return; }
+        if (Stage.Count > 0) { MakeStageFrames(); return; }
         var n = 0;
         while (true)
         {
@@ -478,7 +495,12 @@ static class FakeCanon
                     if (q.TryGetValue("pan", out var p)) { if (int.TryParse(p, out var pv)) { _pan = pv; _vPan = 0; } else _vPan = Speed(p, q.GetValueOrDefault("pan.speed"), "right", "left"); }
                     if (q.TryGetValue("tilt", out var t)) { if (int.TryParse(t, out var tv)) { _tilt = tv; _vTilt = 0; } else _vTilt = Speed(t, q.GetValueOrDefault("tilt.speed"), "up", "down"); }
                 }
-                if (q.TryGetValue("zoom", out var z) && int.TryParse(z, out var zv)) _zoom = zv;
+                lock (Move)
+                    if (q.TryGetValue("zoom", out var z))
+                    {
+                        if (int.TryParse(z, out var zv)) { _zoom = Stage.Count > 0 ? Math.Clamp(zv, ZoomMin, ZoomMax) : zv; _vZoom = 0; }
+                        else { var v = int.TryParse(q.GetValueOrDefault("zoom.speed"), out var zs) ? zs * 0.1 : 2; _vZoom = z == "tele" ? -v : z == "wide" ? v : 0; }
+                    }
                 if (q.TryGetValue("me.gain", out var g)) _gain = int.Parse(g);
                 if (q.TryGetValue("me.shutter", out var sh)) _shutter = int.Parse(sh);
                 if (q.TryGetValue("me.diaphragm", out var ir)) _iris = int.Parse(ir);
@@ -490,6 +512,7 @@ static class FakeCanon
             {
                 var sb = new StringBuilder();
                 sb.Append($"s.hardware:=CR-N500 (fake)\nc.1.name.utf8:=Fake Canon\nc.1.pan:={_pan}\nc.1.tilt:={_tilt}\nc.1.zoom:={_zoom}\n");
+                if (Stage.Count > 0) sb.Append($"c.1.zoom.limit.min:={ZoomMin}\nc.1.zoom.limit.max:={ZoomMax}\nc.1.pan.limit.min:={-PanMax}\nc.1.pan.limit.max:={PanMax}\nc.1.tilt.limit.min:={-TiltMax}\nc.1.tilt.limit.max:={TiltMax}\n");
                 sb.Append($"c.1.exp:=manual\nc.1.me.gain:={_gain}\nc.1.me.gain.mode:=manual\nc.1.me.shutter:={_shutter}\nc.1.me.shutter.mode:=speed\nc.1.me.diaphragm:={_iris}\nc.1.me.diaphragm.mode:=manual\n");
                 sb.Append("c.1.me.gain.list:=0,30,60,90,120\nc.1.me.shutter.list:=30,60,100,120,250\nc.1.me.diaphragm.list:=180,280,400,560,800\n");
                 sb.Append($"c.1.wb:={_wb}\nc.1.wb.kelvin:={_kelvin}\nc.1.wb.kelvin.list:=3200,4300,5600,6500\n");

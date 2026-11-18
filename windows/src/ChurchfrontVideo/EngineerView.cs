@@ -113,12 +113,175 @@ public sealed class EngineerView : Grid
 
 // MARK: - Stage scan
 
+/// <summary>Engineer → Stage scan: find everyone on stage, label them, and save a shot for each
+/// person on each camera. Laid out as its three steps. See StageScan.</summary>
 internal sealed class ScanPage : LiveView
 {
-    protected override string StructureKey() => "scan";
-    protected override UIElement Build() => T.Column(0,
-        EngineerView.Heading("Stage scan", "Find the people on stage from each camera's wide shot, label them, and save a shot for each."),
-        T.Card(T.Text("Stage scan and auto tracking aren't in the Windows version of Churchfront Video yet. Saved shots, presets and the joystick all work.", 13, null, T.InkMuted, wrap: true)).With(c => c.MaxWidth = 720).With(c => c.HorizontalAlignment = HorizontalAlignment.Left));
+    private static Booth B => Booth.Shared;
+    private static StageScan Scan => StageScan.Shared;
+    private List<string> _saved = new();
+
+    private static List<PTZCamera> Cameras => B.Ptz.Cameras.Where(c => c.Host.Length > 0).ToList();
+
+    protected override string StructureKey() =>
+        $"{PTZController.Signature(B.Ptz.Cameras).GetHashCode()}|{Scan.Version}|{string.Join(",", StageCast.Shared.Names)}|{_saved.Count}";
+
+    private static StackPanel Step(int n, string title, params UIElement[] content)
+    {
+        var col = T.Column(10, T.Step(n, title));
+        foreach (var c in content) col.Children.Add(c);
+        return col;
+    }
+
+    protected override UIElement Build()
+    {
+        var page = new StackPanel { MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Left };
+        page.Children.Add(EngineerView.Heading("Stage scan", "With everyone in place, find each person, name them, and save a shot of them on every camera."));
+        page.Children.Add(T.Text("Each camera that isn't on Live goes to a wide shot, finds the people in it, and comes back. The wide shot is a camera's shot named Stage or Wide if it has one; otherwise it's where the camera points now, zoomed all the way out. A tighter Stage shot makes people bigger in the picture and easier to find. The shots are for where people stood during the scan, so run it at rehearsal or soundcheck.",
+            12, null, T.InkMuted, wrap: true).Margin(0, -6, 0, 16));
+
+        // 1 Cameras
+        var camList = new StackPanel();
+        if (Cameras.Count == 0) camList.Children.Add(T.Text("No cameras set up yet. Add them in Setup.", 13, null, T.InkMuted));
+        foreach (var c in Cameras)
+        {
+            var cam = c;
+            var dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center };
+            var name = T.Text(c.Name, 13, FontWeights.SemiBold); name.Width = 110; name.TextTrimming = TextTrimming.CharacterEllipsis;
+            var what = T.Text("", 12, null, T.InkMuted, wrap: true);
+            Live(() =>
+            {
+                var why = Scan.Blocked(cam);
+                dot.Fill = why == null ? T.Success : T.LineStrong;
+                what.Text = why == null ? "Will go wide and come back" : $"Left out: {why}";
+                what.Foreground = why == null ? T.InkMuted : T.Warning;
+            });
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
+            DockPanel.SetDock(dot, Dock.Left); DockPanel.SetDock(name, Dock.Left);
+            dot.Margin = new Thickness(0, 0, 8, 0);
+            row.Children.Add(dot); row.Children.Add(name); row.Children.Add(what);
+            camList.Children.Add(row);
+        }
+
+        // 2 Scan
+        var sizes = new StackPanel { Orientation = Orientation.Horizontal };
+        foreach (var z in ShotSizes.All)
+        {
+            var size = z;
+            var l = T.Text(z.Name(), 12, FontWeights.SemiBold);
+            var b = T.Button(l, () => Scan.Size = size, T.SurfaceSunken, T.Transparent, double.NaN, 28, 6, new Thickness(10, 0, 10, 0));
+            b.Margin = new Thickness(0, 0, 4, 0);
+            Live(() => { var on = Scan.Size == size; b.Background = on ? T.Accent : T.SurfaceSunken; l.Foreground = on ? T.OnAction : T.InkMuted; });
+            sizes.Children.Add(b);
+        }
+        var go = T.Primary("Scan the stage", () => { _saved = new(); Scan.Scan(); }, "Moves each camera marked \"Will go wide and come back\". Cameras on Live don't move.");
+        var goText = (TextBlock)go.Content;
+        var state = T.Text("", 12, null, T.InkSubtle, wrap: true);
+        var notes = T.Text("", 12, FontWeights.SemiBold, T.Warning, wrap: true);
+        Live(() =>
+        {
+            var ready = Cameras.Count(c => Scan.Blocked(c) == null);
+            goText.Text = Scan.Running ? "Scanning…" : Scan.People.Count == 0 ? "Scan the stage" : "Scan again";
+            go.IsEnabled = !Scan.Running && ready > 0 && Scan.Unavailable == null;
+            go.Opacity = go.IsEnabled ? 1 : 0.5;
+            (state.Text, state.Foreground) = Scan.Running ? (Scan.Progress, T.InkMuted)
+                : Scan.Unavailable is string u ? (u, T.Warning)
+                : ready == 0 ? ("No camera is free to scan right now.", T.Warning)
+                : ($"{ready} camera{(ready == 1 ? "" : "s")} will move.", T.InkSubtle);
+            notes.Text = string.Join("\n", Scan.Notes);
+            notes.Visibility = Scan.Notes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        });
+        var top = new Grid { Margin = new Thickness(0, 0, 0, 14) };
+        top.ColumnDefinitions.Add(new ColumnDefinition());
+        top.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(14) });
+        top.ColumnDefinitions.Add(new ColumnDefinition());
+        var c1 = T.Card(Step(1, "Cameras", camList));
+        var c2 = T.Card(Step(2, "Scan", T.Row(10, T.Text("Frame each person", 12, null, T.InkMuted).With(t => t.VerticalAlignment = VerticalAlignment.Center), sizes), T.Row(12, go, state.With(s => s.VerticalAlignment = VerticalAlignment.Center)), notes));
+        Grid.SetColumn(c2, 2);
+        top.Children.Add(c1); top.Children.Add(c2);
+        page.Children.Add(top);
+
+        // 3 Name people and save
+        var step3 = new StackPanel();
+        if (Scan.People.Count == 0)
+        {
+            step3.Children.Add(T.Text(Scan.ScannedAt == null ? "After a scan, each person each camera saw appears here with a box for their name."
+                                                              : "The last scan found no one. Check the notes above, then scan again.", 13, null, T.InkMuted, wrap: true));
+        }
+        else
+        {
+            step3.Children.Add(T.Text("Type a name or a role under each person. The letter is Churchfront Video's guess at the same person on another camera: naming one fills in the others with that letter. Fix any it got wrong, and leave a person blank to skip them.",
+                12, null, T.InkMuted, wrap: true).Margin(0, 0, 0, 10));
+            foreach (var c in Cameras.Where(c => Scan.People.Any(p => p.Camera == c.Id)))
+            {
+                step3.Children.Add(T.Text(c.Name, 13, FontWeights.Bold).Margin(0, 4, 0, 8));
+                var wrap = new WrapPanel();
+                foreach (var p in Scan.People.Where(p => p.Camera == c.Id)) wrap.Children.Add(PersonCard(p, c));
+                step3.Children.Add(wrap);
+            }
+            // Out of the name box first, so the page can show what was saved.
+            var save = T.Primary("Save shots and names", () => { System.Windows.Input.Keyboard.ClearFocus(); _saved = Scan.Save(); });
+            Live(() => { save.IsEnabled = Scan.People.Any(p => p.Label.Trim().Length > 0) && !Scan.Running; save.Opacity = save.IsEnabled ? 1 : 0.5; });
+            step3.Children.Add(T.Row(12, save, T.Text("Replaces the shots from the last scan. Shots you made yourself are kept.", 12, null, T.InkSubtle).With(t => t.VerticalAlignment = VerticalAlignment.Center)).Margin(0, 6, 0, 0));
+            foreach (var line in _saved) step3.Children.Add(T.Text(line, 12, FontWeights.SemiBold, T.Success, wrap: true).Margin(0, 6, 0, 0));
+        }
+        page.Children.Add(T.Card(Step(3, "Name people and save", step3)).Margin(0, 0, 0, 14));
+
+        if (StageCast.Shared.Names.Count > 0)
+            page.Children.Add(T.Card(T.Column(4, T.Caps("Can follow by name"), T.Text(string.Join(", ", StageCast.Shared.Names), 13, FontWeights.SemiBold),
+                T.Text("On Operator, under Track, choose Follow by name. This lasts until Churchfront Video quits or the next scan is saved.", 12, null, T.InkSubtle, wrap: true))));
+        return page;
+    }
+
+    /// <summary>One person from the scan: their picture, the same-person letter, a label, and a way to try the shot.</summary>
+    private UIElement PersonCard(StageScan.Person p, PTZCamera cam)
+    {
+        var pic = new Grid { Height = 170, Background = Brushes.Black, ClipToBounds = true };
+        if (p.Thumb != null)
+        {
+            try
+            {
+                var bmp = new System.Windows.Media.Imaging.BitmapImage();
+                bmp.BeginInit(); bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad; bmp.StreamSource = new MemoryStream(p.Thumb); bmp.EndInit(); bmp.Freeze();
+                pic.Children.Add(new Image { Source = bmp, Stretch = Stretch.Uniform });
+            }
+            catch { }
+        }
+        pic.Children.Add(new Border
+        {
+            Width = 22, Height = 22, CornerRadius = new CornerRadius(11), Background = T.Accent, Margin = new Thickness(6),
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
+            Child = T.Text(p.Letter, 12, FontWeights.Bold, T.OnAction).With(t => { t.HorizontalAlignment = HorizontalAlignment.Center; t.VerticalAlignment = VerticalAlignment.Center; }),
+        });
+        var label = new TextBox
+        {
+            Text = p.Label, Height = 30, Background = T.SurfaceSunken, Foreground = T.Ink, BorderBrush = T.Line, CaretBrush = T.Ink,
+            Padding = new Thickness(6, 4, 6, 4), FontSize = 13, FontFamily = T.Sans, VerticalContentAlignment = VerticalAlignment.Center,
+        };
+        T.Placeholder(label, "Name or role");
+        label.TextChanged += (_, _) => { if (label.Text != p.Label) Scan.Label(p.Id, label.Text); };
+        label.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) System.Windows.Input.Keyboard.ClearFocus(); };
+        // Naming one fills in the others with the same letter: show it, unless that box is being typed in.
+        Live(() => { if (!label.IsKeyboardFocused && label.Text != p.Label) label.Text = p.Label; });
+        var tryIt = T.Small("Try the shot", () => B.Ptz.Go(new PTZShot("", p.Shot), cam.Id));
+        Live(() =>
+        {
+            var why = Scan.Blocked(cam);
+            tryIt.IsEnabled = !Scan.Running && why == null;
+            tryIt.ToolTip = why != null ? $"{cam.Name} can't move now: {why}." : $"Send {cam.Name} to this shot to check it";
+        });
+        var bottom = T.Row(6, tryIt);
+        if (p.Rough)
+            bottom.Children.Add(T.Text("size is a guess", 10, null, T.Warning).With(t =>
+            {
+                t.VerticalAlignment = VerticalAlignment.Center;
+                t.ToolTip = "Only this person's outline was found, so how tight the shot is was estimated. Try the shot and adjust.";
+            }));
+        var card = T.Column(6, new Border { Child = pic, BorderBrush = T.Line, BorderThickness = new Thickness(1) }, label, bottom);
+        card.Width = 160;
+        card.Margin = new Thickness(0, 0, 12, 12);
+        return card;
+    }
 }
 
 // MARK: - Routing

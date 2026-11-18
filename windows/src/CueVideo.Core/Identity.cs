@@ -147,4 +147,15 @@ public static class IdentityMatch
         // Nothing to tell them apart by (too small, or nothing learned yet): the nearest.
         return new(nearest, false);
     }
+
+    /// <summary>Finding a named person (from the stage scan) among everyone in the frame: the
+    /// best fit, if they're a clearly better fit than the next person, or the only one there.</summary>
+    public static int? Find(List<double?> looks)
+    {
+        var known = Enumerable.Range(0, looks.Count).Where(i => looks[i] != null).OrderBy(i => looks[i]!.Value).ToList();
+        if (known.Count == 0) return looks.Count == 1 ? 0 : null;
+        var best = known[0];
+        if (known.Count == 1) return looks.Count == 1 || looks[best]!.Value < 0.6 ? best : null;
+        return looks[best]!.Value < looks[known[1]]!.Value * 0.85 ? best : null;
+    }
 }

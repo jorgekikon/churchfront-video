@@ -460,6 +460,18 @@ public sealed class OperatorView : LiveView
         btn.IsEnabled = t != null;
         col.Children.Add(btn);
 
+        // People labelled in the stage scan can be followed by name, wherever they are in the shot.
+        var byName = T.Button(T.Text("Follow by name ▾", 11, FontWeights.SemiBold, T.AccentStrong), null, T.Transparent, T.Transparent, double.NaN, 22, 4, new Thickness(2, 0, 2, 0), "Follow someone labelled in the stage scan");
+        byName.HorizontalAlignment = HorizontalAlignment.Left;
+        byName.Click += (_, _) =>
+        {
+            if (t == null) return;
+            var m = T.Menu();
+            foreach (var n in StageCast.Shared.Names) { var name = n; m.Items.Add(T.Item(name, () => { _trackProblem = null; Tracker.Start(t, person: name, done: why => { if (why != null && why != "Tracking was stopped.") _trackProblem = why; }); })); }
+            m.PlacementTarget = byName; m.IsOpen = true;
+        };
+        col.Children.Add(byName);
+
         // The follow shot: tap to reframe. The lit one is what it's framing to.
         var sizes = new UniformGrid { Columns = 3, Margin = new Thickness(0, 4, 0, 0) };
         var sizeButtons = new List<(ShotSize Z, Button B, TextBlock L)>();
@@ -506,6 +518,7 @@ public sealed class OperatorView : LiveView
                 : Tracker.Detector == null ? Tracker.Unavailable ?? "Auto tracking isn't set up on this computer."
                 : "Auto tracking needs the camera's own picture: on Windows, that's a Canon camera.";
             sizes.Visibility = speedRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
+            byName.Visibility = s == null && can && StageCast.Shared.Names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             foreach (var (z, b, l) in sizeButtons)
             {
                 var on = s?.Size == z;

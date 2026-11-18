@@ -26,7 +26,7 @@ public static class ControlTools
     public static Action<string>? ShowWindow;
 
     private const string NotYet = " Not available in the Windows version yet.";
-    private static readonly HashSet<string> NotOnWindows = new() { "list_ndi_sources", "scan_stage", "label_stage_scan" };
+    private static readonly HashSet<string> NotOnWindows = new() { "list_ndi_sources" };
 
     // MARK: Tool list
 
@@ -92,11 +92,11 @@ public static class ControlTools
         Tool("run_route_button", "Press one of the volunteer routing buttons, by label.", P(("button", Str("The button's label."))), "button"),
         Tool("find_devices", "Find the switcher and cameras on this computer's network, for first-time setup: ATEM switchers (they answer on UDP 9910), Canon PTZ cameras (their HTTP control page), and everything announcing itself over mDNS/Bonjour (NDI sources, which include most PTZOptics and BirdDog cameras, Blackmagic devices, device web pages), each with its IP address. Takes about 4 seconds and changes nothing. Then confirm with the person which is which and save it with update_config (atemHost, cameras with name, host, proto and atemInput)."),
         Tool("list_ndi_sources", "The NDI sources on the network now, by their exact names, for the ndi field of a volunteer source or key button."),
-        Tool("start_tracking", "Auto tracking: make a camera follow a person, by watching its preview picture (on Windows, a Canon camera's own; NDI pictures aren't on Windows yet). It frames them as a broadcast follow shot: shoulders up, waist up or full length (the shot the camera is closest to unless shot is given), eyes near the upper third, lead room on the side they face or walk toward, eased pan and tilt, and slow zooms to hold the size. Picks the person nearest the middle, or nearest x/y if given (0 to 1 across and down the picture). It keeps to that person by the colours of their clothes, so it stays with them when people cross and waits for them after losing sight. Waits up to 4 seconds for someone to be found. Any manual pan, tilt, shot or preset stops tracking; a manual zoom keeps it and holds the new size. (Following by name needs the stage scan, which isn't on Windows yet.)",
-            P(("camera", CameraP()), ("shot", Choice("Follow shot size.", "shoulders", "waist", "full")), ("x", Num("0 (left) to 1 (right) across the picture.")), ("y", Num("0 (top) to 1 (bottom) down the picture.")), ("person", Str("A name given in the last stage scan (not on Windows yet).")), ("allow_live", AllowLive()))),
-        Tool("scan_stage", "Stage scan: find the people on stage from each camera's wide shot and propose a shot for each.",
+        Tool("start_tracking", "Auto tracking: make a camera follow a person, by watching its preview picture (on Windows, a Canon camera's own; NDI pictures aren't on Windows yet). It frames them as a broadcast follow shot: shoulders up, waist up or full length (the shot the camera is closest to unless shot is given), eyes near the upper third, lead room on the side they face or walk toward, eased pan and tilt, and slow zooms to hold the size. Picks the person nearest the middle, or nearest x/y if given (0 to 1 across and down the picture), or with person, someone labelled in the last stage scan, by name, wherever they are in the shot. It keeps to that person by the colours of their clothes, so it stays with them when people cross and waits for them after losing sight. Waits up to 4 seconds for someone to be found. Any manual pan, tilt, shot or preset stops tracking; a manual zoom keeps it and holds the new size.",
+            P(("camera", CameraP()), ("shot", Choice("Follow shot size.", "shoulders", "waist", "full")), ("x", Num("0 (left) to 1 (right) across the picture.")), ("y", Num("0 (top) to 1 (bottom) down the picture.")), ("person", Str("A name given in the last stage scan.")), ("allow_live", AllowLive()))),
+        Tool("scan_stage", "Stage scan, for before a service with everyone in place: each Canon camera that isn't on Live, tracking or out of Churchfront Video's control goes to a wide shot (its shot named Stage or Wide, else where it points now zoomed all the way out), Churchfront Video finds the people in it and works out the shot that frames each one from that camera, and the camera goes back. Returns every person each camera saw, with a number, a small picture, the proposed shot, and a letter: the same letter is a guess (by the colours of their clothes) at the same person on another camera. Nothing is saved until label_stage_scan. This moves cameras, so confirm with the person first.",
             P(("cameras", AnyList("Cameras to scan. Leave out for all.")), ("shot", Choice("How to frame each person. Default waist.", "shoulders", "waist", "full")), ("pictures", Bool("Include each person's picture (default true).")))),
-        Tool("label_stage_scan", "Name the people from the last scan_stage and save a shot per labelled person.",
+        Tool("label_stage_scan", "Name the people from the last scan_stage and save: a shot per labelled person on each camera that saw them (replacing shots from earlier scans, keeping hand-made ones), and their look, so start_tracking can follow them by name until Churchfront Video quits. Label each number, or a letter to label everyone with that letter at once. Unlabelled people are skipped.",
             P(("labels", new JsonObject { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "object", ["properties"] = P(("person", Any("A person's number, or a letter.")), ("label", Str("A name or role."))) }, ["description"] = "Who is who." })), "labels"),
         Tool("get_framing", "The follow-shot framing rules auto tracking uses for each shot size (shoulders, waist, full), the built-in standard and any changes, plus the tracking response settings. Use with camera_snapshots to judge framing."),
         Tool("set_framing", "Change how a follow shot is framed, live, while Churchfront Video runs: takes effect on tracking cameras within a frame. All measured as a share of the frame. eye_line: where the eyes sit, down from the top (less = less headroom). size: eyes-to-shoulders drop against frame height (bigger = tighter). lead_room: offset toward where they face or walk. dead_x / dead_y: how far they can drift before the camera moves. reset: true returns this size to the standard.",
@@ -267,6 +267,51 @@ public static class ControlTools
                     }
                     else done(new JsonObject { ["error"] = AutoTracker.Shared.IsTracking(c.Id) ? $"{c.Name}: {why} It keeps looking until stop_tracking." : $"{c.Name}: {why}" });
                 });
+                break;
+            }
+            case "scan_stage":
+            {
+                var list = a["cameras"] as JsonArray;
+                var cams = list?.Select(x => Cam(new JsonObject { ["camera"] = x?.DeepClone() }, changing: false)).ToList();
+                var pictures = CueJson.Bool(a["pictures"]) ?? true;
+                var scan = StageScan.Shared;
+                if (scan.Running) throw Fail("A stage scan is already running.");
+                if (ShotSizes.Parse(CueJson.Str(a["shot"])) is ShotSize z) scan.Size = z;
+                scan.Scan(cams, () =>
+                {
+                    var o = scan.Report();
+                    if (pictures)
+                    {
+                        var imgs = new JsonArray();
+                        foreach (var p in scan.People)
+                            if (p.Thumb != null)
+                                imgs.Add(new JsonObject { ["label"] = $"Person {p.Id} ({p.Letter}) on {p.CameraName}", ["mimeType"] = "image/jpeg", ["data"] = Convert.ToBase64String(p.Thumb) });
+                        o["images"] = imgs;
+                    }
+                    done(o);
+                });
+                break;
+            }
+            case "label_stage_scan":
+            {
+                if (a["labels"] is not JsonArray labels || labels.Count == 0) throw Fail("Give labels as [{person, label}].");
+                var scan = StageScan.Shared;
+                if (scan.People.Count == 0) throw Fail("There's no scan to label. Run scan_stage first.");
+                // Check every one first, so a mistake saves nothing.
+                var plan = new List<(List<int> Ids, string Text)>();
+                var unknown = new List<string>();
+                foreach (var l in labels.OfType<JsonObject>())
+                {
+                    var text = (CueJson.Str(l["label"]) ?? "").Trim();
+                    if (IntValue(l["person"]) is int n && scan.People.Any(p => p.Id == n)) plan.Add((new() { n }, text));
+                    else if (CueJson.Str(l["person"])?.Trim().ToUpperInvariant() is string letter && scan.People.Where(p => p.Letter == letter).Select(p => p.Id).ToList() is { Count: > 0 } ids)
+                        plan.Add((ids, text));
+                    else unknown.Add(l["person"]?.ToString() ?? "?");
+                }
+                if (unknown.Count > 0) throw Fail($"No one in the scan is {string.Join(", ", unknown)}. Nothing was saved.");
+                foreach (var (ids, text) in plan) foreach (var id in ids) scan.Label(id, text);
+                var said = scan.Save();
+                done(Ok(string.Join(" ", said), scan.Report()));
                 break;
             }
             case "set_tracking_shot":
@@ -840,9 +885,9 @@ public static class ControlTools
             },
             ["volunteer"] = new JsonObject { ["sources"] = vs, ["key_buttons"] = kb },
             ["cameras"] = cams,
-            ["stage_scan_names"] = new JsonArray(),
+            ["stage_scan_names"] = new JsonArray(StageCast.Shared.Names.Select(n => (JsonNode?)n).ToArray()),
             ["platform"] = "windows",
-            ["not_on_windows_yet"] = new JsonArray("NDI previews", "stage scan (and following by name)", "auto tracking on cameras other than Canon (it needs the NDI picture)"),
+            ["not_on_windows_yet"] = new JsonArray("NDI previews", "auto tracking on cameras other than Canon (it needs the NDI picture)"),
             ["auto_tracking"] = AutoTracker.Shared.Detector != null ? "ready" : AutoTracker.Shared.Unavailable ?? "not set up",
             ["config_file"] = Store.FilePath,
         };

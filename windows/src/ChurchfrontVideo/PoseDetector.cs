@@ -178,6 +178,44 @@ public sealed class PoseDetector : IPersonDetector, IDisposable
     public void Dispose() => _session.Dispose();
 }
 
+/// <summary>The stage scan's still pictures: decoded to pixels for the model, and people cut out as small JPEGs.</summary>
+public sealed class StillImages : IStillImages
+{
+    public TrackFrame? Decode(byte[] jpeg, int maxWidth)
+    {
+        try
+        {
+            var src = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(jpeg), System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+            var scale = Math.Min(1.0, (double)maxWidth / src.PixelWidth);
+            System.Windows.Media.Imaging.BitmapSource b = scale < 1 ? new System.Windows.Media.Imaging.TransformedBitmap(src, new System.Windows.Media.ScaleTransform(scale, scale)) : src;
+            var bgr = new System.Windows.Media.Imaging.FormatConvertedBitmap(b, System.Windows.Media.PixelFormats.Bgr24, null, 0);
+            int w = bgr.PixelWidth, h = bgr.PixelHeight;
+            var px = new byte[w * h * 3];
+            bgr.CopyPixels(px, w * 3, 0);
+            return new TrackFrame { Width = w, Height = h, Bgr = px };
+        }
+        catch { return null; }
+    }
+
+    public byte[]? Crop(TrackFrame f, RectD box, int maxWidth)
+    {
+        try
+        {
+            var src = System.Windows.Media.Imaging.BitmapSource.Create(f.Width, f.Height, 96, 96, System.Windows.Media.PixelFormats.Bgr24, null, f.Bgr, f.Width * 3);
+            var r = new System.Windows.Int32Rect((int)(box.X * f.Width), (int)(box.Y * f.Height),
+                Math.Max(1, Math.Min(f.Width - (int)(box.X * f.Width), (int)(box.W * f.Width))), Math.Max(1, Math.Min(f.Height - (int)(box.Y * f.Height), (int)(box.H * f.Height))));
+            System.Windows.Media.Imaging.BitmapSource crop = new System.Windows.Media.Imaging.CroppedBitmap(src, r);
+            if (crop.PixelWidth > maxWidth) crop = new System.Windows.Media.Imaging.TransformedBitmap(crop, new System.Windows.Media.ScaleTransform((double)maxWidth / crop.PixelWidth, (double)maxWidth / crop.PixelWidth));
+            var enc = new System.Windows.Media.Imaging.JpegBitmapEncoder { QualityLevel = 80 };
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(crop));
+            using var ms = new MemoryStream();
+            enc.Save(ms);
+            return ms.ToArray();
+        }
+        catch { return null; }
+    }
+}
+
 /// <summary>Tracking's pictures on Windows: a Canon camera's own preview stream.</summary>
 public sealed class TrackPictures : ITrackPictures
 {

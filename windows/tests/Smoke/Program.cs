@@ -193,6 +193,37 @@ try
     fakeLog.Clear();
     r = Tool("stop_tracking", new JsonObject { ["all"] = true });
     Check(r["ok"] != null && Wait(() => fakeLog.Any(l => l.Contains("pan=stop"))), "stop_tracking stops the camera");
+
+    // MARK: Stage scan (with the real model and a virtual stage: tests/TrackSim scan)
+    var straight = ShotMath.Shot(new(0.5, 0.29), 0.21, new(10, 5, 40), 0.29, 0.21);
+    Check(Math.Abs(straight.Pan - 10) < 0.01 && Math.Abs(straight.Tilt - 5) < 0.01 && Math.Abs(straight.Fov - 40) < 0.01, "a person already framed right needs no move");
+    var edge = ShotMath.Shot(new(1.0, 0.29), 0.105, new(0, 0, 60), 0.29, 0.21);
+    Check(Math.Abs(edge.Pan - 30) < 0.01 && Math.Abs(edge.Fov - 32.2) < 0.1, "a person at the edge: pan by half the view, zoom in to twice their size");
+    var st = CanonState.Parse("c.1.pan:=-1200\nc.1.tilt==50\nc.1.zoom:=6050\nc.1.zoom.limit.min:=330\nc.1.zoom.limit.max:=6050\n");
+    Check(st?.View == new ShotMath.View(-12, 0.5, 60.5) && st.Limits.Fov.Lo == 3.3, "reads where a Canon points and how far it zooms");
+    StageScan.Person P(int id, Guid cam, Appearance look) => new() { Id = id, Camera = cam, Look = look, Group = -1 };
+    Guid camA = Guid.NewGuid(), camB = Guid.NewGuid();
+    var grouped = StageScan.Grouped(new() { P(1, camA, redBlue), P(2, camA, greenGrey), P(3, camB, greenGrey), P(4, camB, redBlue) });
+    Check(grouped[0].Letter == grouped[3].Letter && grouped[1].Letter == grouped[2].Letter && grouped[0].Letter != grouped[1].Letter, "the same clothes on two cameras get the same letter");
+    Check(IdentityMatch.Find(new() { 0.9, 0.2, null }) == 1 && IdentityMatch.Find(new() { 0.5, 0.55 }) == null, "finding someone by name needs a clear best fit");
+
+    r = Tool("label_stage_scan", new JsonObject { ["labels"] = new JsonArray(new JsonObject { ["person"] = 1, ["label"] = "Pastor" }) });
+    Check(r["error"]?.ToString().Contains("scan_stage first") == true, "labelling before a scan is refused");
+    OnMain(() => { StageScan.Shared.Images = stand; return 0; });
+    fakeLog.Clear();
+    r = Tool("scan_stage", new JsonObject { ["cameras"] = new JsonArray("Canon"), ["pictures"] = false });
+    Check(r["people"]?.AsArray().Count == 1 && r["people"]?[0]?["shot"] != null, "scan_stage finds the person on the Canon and proposes a shot");
+    Check(fakeLog.Count(l => l.Contains("control.cgi") && l.Contains("zoom=")) >= 2, "the camera went to its Stage shot for the scan and came back");
+    r = Tool("label_stage_scan", new JsonObject { ["labels"] = new JsonArray(new JsonObject { ["person"] = "Z", ["label"] = "Nobody" }) });
+    Check(r["error"]?.ToString().Contains("Nothing was saved") == true, "a label for someone not in the scan saves nothing");
+    r = Tool("label_stage_scan", new JsonObject { ["labels"] = new JsonArray(new JsonObject { ["person"] = "A", ["label"] = "Pastor" }) });
+    Check(r["done"]?.ToString().Contains("Saved 1 shot") == true && OnMain(() => ptz.Camera(canon.Id)!.Shots.Any(s => s.Name == "Pastor" && s.Auto)), "label_stage_scan saves a shot marked as from the scan");
+    Check(Tool("get_status")["stage_scan_names"]?[0]?.ToString() == "Pastor", "get_status lists who can be followed by name");
+    r = Tool("start_tracking", new JsonObject { ["camera"] = "Canon", ["person"] = "deacon", ["allow_live"] = true });
+    Check(r["error"]?.ToString().Contains("Pastor") == true, "following an unknown name says who can be followed");
+    r = Tool("start_tracking", new JsonObject { ["camera"] = "Canon", ["person"] = "pastor", ["allow_live"] = true });
+    Check(r["done"]?.ToString().Contains("following Pastor") == true, "start_tracking follows someone by name");
+    Tool("stop_tracking", new JsonObject { ["all"] = true });
     r = Tool("set_framing", new JsonObject { ["shot"] = "waist", ["eye_line"] = 0.9 });
     Check(r["framing"]?["waist"]?["now"]?["eye_line"]?.GetValue<double>() == 0.5, "set_framing keeps values in range");
     r = Tool("camera_snapshots", new JsonObject { ["cameras"] = new JsonArray("Canon"), ["pictures"] = false });
@@ -224,15 +255,17 @@ return failures == 0 ? 0 : 1;
 
 /// <summary>Stands in for the camera picture (a blank frame ten times a second) and the pose
 /// model (the same person every frame), so the tracker can be tried without either.</summary>
-sealed class StandIn : IPersonDetector, ITrackPictures
+sealed class StandIn : IPersonDetector, ITrackPictures, IStillImages
 {
+    public TrackFrame? Decode(byte[] jpeg, int maxWidth) => new() { Width = 640, Height = 360, Bgr = new byte[640 * 360 * 3] };
+    public byte[]? Crop(TrackFrame frame, RectD box, int maxWidth) => new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 };
     private readonly (double X, double Y, double C)[] _pts;
     public StandIn((double, double, double)[] pts) { _pts = pts; }
     public List<PoseBody> Detect(TrackFrame f) => new() { new PoseBody { Box = new(0.55, 0.15, 0.3, 0.85), Score = 0.9, Points = _pts } };
     public bool Has(PTZCamera c) => c.Proto == VISCAProtocol.CanonXC;
     public Action Watch(PTZCamera c, Action<TrackFrame> frame)
     {
-        var f = new TrackFrame { Width = 64, Height = 36, Bgr = new byte[64 * 36 * 3] };
+        var f = new TrackFrame { Width = 640, Height = 360, Bgr = new byte[640 * 360 * 3] };
         var t = new Timer(_ => frame(f), null, 0, 100);
         return () => t.Dispose();
     }

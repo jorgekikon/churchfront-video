@@ -48,6 +48,7 @@ public static class Program
         // second or two to load, so it does that in the background.
         var tracker = AutoTracker.Shared;
         tracker.Pictures = new TrackPictures();
+        StageScan.Shared.Images = new StillImages();
         tracker.Attach();
         tracker.Unavailable = "Auto tracking is still starting up. Try again in a few seconds.";
         Task.Run(() =>

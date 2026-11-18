@@ -69,6 +69,7 @@ public sealed class MainWindow : Window
         B.Changed += () => _dirty = true;
         CanonFeedHub.FrameArrived += () => _dirty = true;
         AutoTracker.Shared.Changed += () => _dirty = true;
+        StageScan.Shared.Changed += () => _dirty = true;
         var timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
         timer.Tick += (_, _) =>
         {

@@ -283,8 +283,20 @@ public sealed class AutoTracker
         Stop(camera.Id, quiet: true);
         if (Detector == null) { done?.Invoke(Unavailable ?? "Auto tracking isn't set up on this computer."); return; }
         if (Pictures?.Has(camera) != true) { done?.Invoke("Auto tracking needs the camera's picture: on Windows that's a Canon camera (NDI pictures aren't on Windows yet)."); return; }
-        if (person != null) { done?.Invoke("Following someone by name needs a stage scan, which isn't on Windows yet. Leave person out, or give x and y."); return; }
         var s = new Session { Camera = camera.Id, Pick = point, Asked = size };
+        if (person != null)
+        {
+            if (StageCast.Shared.Look(person) is not { } hit)
+            {
+                var names = StageCast.Shared.Names;
+                done?.Invoke(names.Count == 0 ? "No one has been labelled yet. Run a stage scan first."
+                                              : $"No one called {person} in the last stage scan. It has: {string.Join(", ", names)}.");
+                return;
+            }
+            s.Person = hit.Name;
+            s.Gallery = hit.Looks.Take(4).ToList();
+            s.Anchors = s.Gallery.Count;
+        }
         if (size is ShotSize a) s.Size = a;
         _sessions[camera.Id] = s;
         _active[camera.Id] = 0;
@@ -362,9 +374,18 @@ public sealed class AutoTracker
 
         if (s.Target == null)
         {
-            // First sight: take the person under the click, or nearest it (the middle by default).
-            var p = s.Pick ?? new PointD(0.5, 0.5);
-            var pick = people.FirstOrDefault(x => x.Box.Contains(p)) ?? people.OrderBy(x => Dist(x.Box.Center, p)).FirstOrDefault();
+            TrackedPerson? pick;
+            if (s.Person != null)
+            {
+                // Someone named in the stage scan: whoever looks like them, wherever they stand.
+                pick = IdentityMatch.Find(people.Select(x => x.Appearance?.Distance(s.Gallery)).ToList()) is int k ? people[k] : null;
+            }
+            else
+            {
+                // First sight: take the person under the click, or nearest it (the middle by default).
+                var p = s.Pick ?? new PointD(0.5, 0.5);
+                pick = people.FirstOrDefault(x => x.Box.Contains(p)) ?? people.OrderBy(x => Dist(x.Box.Center, p)).FirstOrDefault();
+            }
             if (pick != null)
             {
                 s.Target = pick;
@@ -625,7 +646,7 @@ public sealed class AutoTracker
             }
         foreach (var (id, s) in _sessions.ToList())
             if (s.Target == null && (now - s.Started).TotalSeconds > 4)
-                Finish(id, "No one is in the picture, or the picture isn't coming in.");
+                Finish(id, s.Person is string n ? $"Can't see {n} in the picture, or the picture isn't coming in." : "No one is in the picture, or the picture isn't coming in.");
     }
 
     /// <summary>Reads where the camera really is: its angle of view, and how fast it's really
