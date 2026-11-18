@@ -282,7 +282,7 @@ public sealed class AutoTracker
     {
         Stop(camera.Id, quiet: true);
         if (Detector == null) { done?.Invoke(Unavailable ?? "Auto tracking isn't set up on this computer."); return; }
-        if (Pictures?.Has(camera) != true) { done?.Invoke("Auto tracking needs the camera's picture: on Windows that's a Canon camera (NDI pictures aren't on Windows yet)."); return; }
+        if (Pictures?.Has(camera) != true) { done?.Invoke("Auto tracking needs the camera's picture: a Canon camera, or an NDI picture set for its switcher input in Setup."); return; }
         var s = new Session { Camera = camera.Id, Pick = point, Asked = size };
         if (person != null)
         {

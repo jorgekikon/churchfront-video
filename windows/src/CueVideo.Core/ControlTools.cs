@@ -26,7 +26,7 @@ public static class ControlTools
     public static Action<string>? ShowWindow;
 
     private const string NotYet = " Not available in the Windows version yet.";
-    private static readonly HashSet<string> NotOnWindows = new() { "list_ndi_sources" };
+    private static readonly HashSet<string> NotOnWindows = new();
 
     // MARK: Tool list
 
@@ -60,7 +60,7 @@ public static class ControlTools
         // Status and setup
         Tool("get_status", "Everything Churchfront Video knows right now: switcher connection, what's Live and Next on each M/E, keys, DSKs, aux, macros, recording and streaming, every source, the volunteer source row and key buttons, and each camera's connection, control, exposure, saved shots and on-camera presets."),
         Tool("get_config", "The setup as saved in Churchfront Video's config file (JSON): switcher address, volunteer M/E, source row, key buttons, cameras and their saved shots."),
-        Tool("update_config", "Change the setup. Give any of the top-level fields (atemHost, me, sources, keys, cameras, trackSpeed 0.5 to 4, ptzSpeed 0.25 to 2 (manual camera control speed), trackTilt, trackZoom). Sources and keys take an optional ndi: an NDI source name (NDI pictures aren't shown on Windows yet, but the setting is kept for the Mac). pictures ({input number: NDI source name}). Routing: mixNames (what each M/E is for, from M/E 1), screens ([{name, aux: [numbers from 1], note, volunteer, pinned (a small preview in the top bar)}]), routes (volunteer routing buttons: [{label, set: [{aux, source}]}], source as an input number; M/E 1 program is 10010, M/E 2 program 10020); each one given replaces that whole field. Read get_config first and send back the edited field.",
+        Tool("update_config", "Change the setup. Give any of the top-level fields (atemHost, me, sources, keys, cameras, trackSpeed 0.5 to 4, ptzSpeed 0.25 to 2 (manual camera control speed), trackTilt, trackZoom). Sources and keys take an optional ndi: an NDI source name from list_ndi_sources. pictures ({input number: NDI source name}, a live picture for a switcher input that is not in sources, such as a stage display). Routing: mixNames (what each M/E is for, from M/E 1), screens ([{name, aux: [numbers from 1], note, volunteer, pinned (a small preview in the top bar)}]), routes (volunteer routing buttons: [{label, set: [{aux, source}]}], source as an input number; M/E 1 program is 10010, M/E 2 program 10020); each one given replaces that whole field. Read get_config first and send back the edited field.",
             P(("config", new JsonObject { ["type"] = "object", ["description"] = "Fields to replace, in the config file's format." })), "config"),
         Tool("show_window", "Show a view of Churchfront Video's window on screen: operator (the booth screen, also called main), or a page of the Engineer view: scan (stage scan), routing, switcher (the full switcher), setup or status.",
             P(("window", Choice("Which view or page.", "operator", "main", "scan", "routing", "switcher", "setup", "status"))), "window"),
@@ -92,7 +92,7 @@ public static class ControlTools
         Tool("run_route_button", "Press one of the volunteer routing buttons, by label.", P(("button", Str("The button's label."))), "button"),
         Tool("find_devices", "Find the switcher and cameras on this computer's network, for first-time setup: ATEM switchers (they answer on UDP 9910), Canon PTZ cameras (their HTTP control page), and everything announcing itself over mDNS/Bonjour (NDI sources, which include most PTZOptics and BirdDog cameras, Blackmagic devices, device web pages), each with its IP address. Takes about 4 seconds and changes nothing. Then confirm with the person which is which and save it with update_config (atemHost, cameras with name, host, proto and atemInput)."),
         Tool("list_ndi_sources", "The NDI sources on the network now, by their exact names, for the ndi field of a volunteer source or key button."),
-        Tool("start_tracking", "Auto tracking: make a camera follow a person, by watching its preview picture (on Windows, a Canon camera's own; NDI pictures aren't on Windows yet). It frames them as a broadcast follow shot: shoulders up, waist up or full length (the shot the camera is closest to unless shot is given), eyes near the upper third, lead room on the side they face or walk toward, eased pan and tilt, and slow zooms to hold the size. Picks the person nearest the middle, or nearest x/y if given (0 to 1 across and down the picture), or with person, someone labelled in the last stage scan, by name, wherever they are in the shot. It keeps to that person by the colours of their clothes, so it stays with them when people cross and waits for them after losing sight. Waits up to 4 seconds for someone to be found. Any manual pan, tilt, shot or preset stops tracking; a manual zoom keeps it and holds the new size.",
+        Tool("start_tracking", "Auto tracking: make a camera follow a person, by watching its preview picture (a Canon's own, or for other cameras the NDI picture set for their switcher input). It frames them as a broadcast follow shot: shoulders up, waist up or full length (the shot the camera is closest to unless shot is given), eyes near the upper third, lead room on the side they face or walk toward, eased pan and tilt, and slow zooms to hold the size. Picks the person nearest the middle, or nearest x/y if given (0 to 1 across and down the picture), or with person, someone labelled in the last stage scan, by name, wherever they are in the shot. It keeps to that person by the colours of their clothes, so it stays with them when people cross and waits for them after losing sight. Waits up to 4 seconds for someone to be found. Any manual pan, tilt, shot or preset stops tracking; a manual zoom keeps it and holds the new size.",
             P(("camera", CameraP()), ("shot", Choice("Follow shot size.", "shoulders", "waist", "full")), ("x", Num("0 (left) to 1 (right) across the picture.")), ("y", Num("0 (top) to 1 (bottom) down the picture.")), ("person", Str("A name given in the last stage scan.")), ("allow_live", AllowLive()))),
         Tool("scan_stage", "Stage scan, for before a service with everyone in place: each Canon camera that isn't on Live, tracking or out of Churchfront Video's control goes to a wide shot (its shot named Stage or Wide, else where it points now zoomed all the way out), Churchfront Video finds the people in it and works out the shot that frames each one from that camera, and the camera goes back. Returns every person each camera saw, with a number, a small picture, the proposed shot, and a letter: the same letter is a guess (by the colours of their clothes) at the same person on another camera. Nothing is saved until label_stage_scan. This moves cameras, so confirm with the person first.",
             P(("cameras", AnyList("Cameras to scan. Leave out for all.")), ("shot", Choice("How to frame each person. Default waist.", "shoulders", "waist", "full")), ("pictures", Bool("Include each person's picture (default true).")))),
@@ -113,7 +113,7 @@ public static class ControlTools
             P(("camera", CameraP()), ("gain", Int("Tenths of a dB.")), ("shutter", Int("Shutter speed denominator.")), ("iris", Int("f-number times 100.")),
               ("white_balance", Any("auto, daylight, tungsten, or kelvin as a number such as 4300.")),
               ("auto", Bool("Auto exposure: the camera sets gain, shutter and iris itself. Not with gain, shutter or iris.")), ("allow_live", AllowLive()))),
-        Tool("camera_snapshots", "A still picture from each Canon camera (or the ones named), with color measurements, to compare and match them: average red, green and blue, the color cast (red÷green and blue÷green; balanced is about 1), brightness (0 to 255), and the share of the picture clipped to white or crushed to black. Point the cameras at the same scene to compare fairly. Fix differences with set_exposure or match_exposure. (On Windows, only Canon cameras give pictures for now.)",
+        Tool("camera_snapshots", "A still picture from each camera that has one (a Canon's own, or the NDI picture set for its switcher input), or the ones named, with color measurements, to compare and match them: average red, green and blue, the color cast (red÷green and blue÷green; balanced is about 1), brightness (0 to 255), and the share of the picture clipped to white or crushed to black. Point the cameras at the same scene to compare fairly. Fix differences with set_exposure or match_exposure.",
             P(("cameras", AnyList("Cameras to look at. Leave out for all.")), ("pictures", Bool("Include the pictures themselves (default true). False gives only the measurements.")))),
         Tool("match_exposure", "Make cameras match one camera's exposure: copies gain, shutter, iris and white balance (or only the settings named) from one camera to the others, each value snapped to the nearest the other camera accepts (models differ). Leave out to for every other camera. Cameras on Live are skipped unless allow_live is true.",
             P(("from", Any("The camera to copy from (name, IP or input).")), ("to", AnyList("Cameras to change. Leave out for all the others.")),
@@ -369,6 +369,14 @@ public static class ControlTools
                 done(Ok($"Ran {r.Label}: {Store.RouteDetail(r, s).Replace("\n", "; ")}"));
                 break;
             }
+            case "list_ndi_sources":
+                NdiDirectory.Scan(() =>
+                {
+                    if (!NdiDirectory.HasRuntime) { done(new JsonObject { ["error"] = "NDI isn't installed on this computer. Install NDI Tools (it includes the NDI runtime)." }); return; }
+                    var list = new JsonArray(); foreach (var n in NdiDirectory.Sources) list.Add(n);
+                    done(new JsonObject { ["sources"] = list });
+                });
+                break;
             case "find_devices":
                 DeviceFinder.Find(3, (list, nets) => MainThread.Post(() =>
                 {
@@ -457,7 +465,7 @@ public static class ControlTools
             case "camera_snapshots":
             {
                 var cams = a["cameras"] is JsonArray list ? list.Select(v => Cam(new JsonObject { ["camera"] = v?.DeepClone() }, changing: false)).ToList()
-                    : Ptz.Cameras.Where(c => c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0).ToList();
+                    : Ptz.Cameras.Where(Snapshots.HasPicture).ToList();
                 var pictures = CueJson.Bool(a["pictures"]) ?? true;
                 Snapshots.Take(cams, pictures, results => MainThread.Post(() =>
                 {
@@ -884,13 +892,31 @@ public static class ControlTools
                 ["sources"] = sources,
             },
             ["volunteer"] = new JsonObject { ["sources"] = vs, ["key_buttons"] = kb },
+            ["ndi_previews"] = NdiPreviews(s),
+            ["ndi_runtime"] = Ndi.Loaded ?? (NdiDirectory.HasRuntime ? "not loaded yet" : "not installed (install NDI Tools)"),
             ["cameras"] = cams,
             ["stage_scan_names"] = new JsonArray(StageCast.Shared.Names.Select(n => (JsonNode?)n).ToArray()),
             ["platform"] = "windows",
-            ["not_on_windows_yet"] = new JsonArray("NDI previews", "auto tracking on cameras other than Canon (it needs the NDI picture)"),
             ["auto_tracking"] = AutoTracker.Shared.Detector != null ? "ready" : AutoTracker.Shared.Unavailable ?? "not set up",
             ["config_file"] = Store.FilePath,
         };
+    }
+
+    /// <summary>Every NDI picture set up, and whether it's coming in.</summary>
+    private static JsonArray NdiPreviews(ATEMState s)
+    {
+        var a = new JsonArray();
+        JsonNode Receiving(string n) => NdiHub.IsLive(n) is bool b ? b : "not shown now";
+        foreach (var src in Store.Config.Sources.Where(x => !string.IsNullOrEmpty(x.Ndi)))
+        {
+            var f = NdiHub.Feed(src.Ndi!);
+            a.Add(new JsonObject { ["for"] = Store.Label(src.Input, s), ["source"] = src.Ndi, ["receiving"] = Receiving(src.Ndi!), ["alpha"] = f.HasAlpha, ["picture"] = f.Shape.Length > 0 ? f.Shape : null });
+        }
+        foreach (var (input, n) in Store.Config.Pictures.Where(kv => kv.Value.Length > 0))
+            a.Add(new JsonObject { ["for"] = int.TryParse(input, out var i) ? Store.Label(i, s) : input, ["source"] = n, ["receiving"] = Receiving(n) });
+        foreach (var k in Store.Config.Keys.Where(x => !string.IsNullOrEmpty(x.Ndi)))
+            a.Add(new JsonObject { ["for"] = k.Label, ["source"] = k.Ndi, ["receiving"] = Receiving(k.Ndi!), ["alpha"] = NdiHub.Feed(k.Ndi!).HasAlpha, ["on_live"] = k.IsOn(s), ["on_next"] = k.OnNext(s) });
+        return a;
     }
 
     private static JsonArray Arr(IEnumerable<int> xs) { var a = new JsonArray(); foreach (var x in xs) a.Add(x); return a; }

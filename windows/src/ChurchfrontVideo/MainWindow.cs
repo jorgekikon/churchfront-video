@@ -17,6 +17,7 @@ public sealed class MainWindow : Window
     private readonly ContentControl _content = new();
     private readonly OperatorView _operator = new();
     private readonly EngineerView _engineer = new();
+    private readonly TopMonitors _monitors = new();
     private readonly Button _opTab, _enTab;
     private readonly TextBlock _opText, _enText, _status, _cams;
     private readonly System.Windows.Shapes.Ellipse _dot = new() { Width = 8, Height = 8 };
@@ -48,9 +49,13 @@ public sealed class MainWindow : Window
         var gear = T.Button(T.Text("⚙", 16, null, T.InkMuted), () => B.Show(EngineerSection.Setup), T.Transparent, T.Transparent, 34, 30, 6, new Thickness(0), "Setup");
         var right = T.Row(0, _record.Button, _stream.Button, gear);
         right.VerticalAlignment = VerticalAlignment.Center;
-        var bar = new DockPanel { Height = 56, Margin = new Thickness(20, 0, 16, 0) };
+        var bar = new DockPanel { Height = 64, Margin = new Thickness(20, 0, 16, 0) };
         DockPanel.SetDock(right, Dock.Right);
         bar.Children.Add(right);
+        // Small live pictures: Live and Next (off Operator), then the pinned screens.
+        _monitors.Margin = new Thickness(0, 0, 12, 0);
+        DockPanel.SetDock(_monitors, Dock.Right);
+        bar.Children.Add(_monitors);
         var left = T.Row(16, T.Text("Churchfront Video", 16, FontWeights.Bold), seg, T.Row(6, _dot, _status), _cams);
         left.VerticalAlignment = VerticalAlignment.Center;
         bar.Children.Add(left);
@@ -70,6 +75,8 @@ public sealed class MainWindow : Window
         CanonFeedHub.FrameArrived += () => _dirty = true;
         AutoTracker.Shared.Changed += () => _dirty = true;
         StageScan.Shared.Changed += () => _dirty = true;
+        NdiHub.FrameArrived += () => _dirty = true;     // from the NDI receiving threads: only a flag
+        NdiDirectory.Changed += () => _dirty = true;
         var timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
         timer.Tick += (_, _) =>
         {
@@ -136,6 +143,7 @@ public sealed class MainWindow : Window
             if (view == AppView.Operate) _operator.Refresh(force: true);
         }
         if (view == AppView.Operate) _operator.Refresh(); else _engineer.Refresh();
+        _monitors.Refresh();
         ExposureWindow.RefreshOpen();
     }
 

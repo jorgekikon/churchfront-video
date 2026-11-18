@@ -28,7 +28,7 @@ internal sealed class RoutingPage : LiveView
     private bool _showSpareIn, _showInside, _showSpareOut, _feedsUnlocked;
     private string _message = "";
     private readonly List<(string What, Action Back)> _undo = new();
-    private readonly HashSet<Guid> _retained = new();
+    private readonly Pictures.Keeper _pics = new();
 
     // Filled by Build, read by the wire drawing.
     private readonly Dictionary<int, FrameworkElement> _srcEls = new();
@@ -46,32 +46,19 @@ internal sealed class RoutingPage : LiveView
             string.Join(",", S.Preview.Select(kv => $"{kv.Key}={kv.Value}")), B.Me, _showSpareIn, _showInside, _showSpareOut, _feedsUnlocked,
             PTZController.Signature(B.Ptz.Cameras).GetHashCode());
 
-    public override void Teardown()
-    {
-        foreach (var id in _retained) if (B.Ptz.Camera(id) is PTZCamera c) CanonFeedHub.Release(c);
-        _retained.Clear();
-    }
+    public override void Teardown() => _pics.Clear();
 
     // MARK: Pictures
 
-    /// <summary>The Canon camera whose picture shows what this source carries (a mix shows what's live on it).</summary>
-    private static PTZCamera? CameraFor(int? input)
-    {
-        if (input is not int id) return null;
-        if (RoutingEdit.IsMix(id) && id % 10 == 0) id = S.ProgramOf((id - 10000) / 10 - 1) ?? id;
-        return B.Ptz.Cameras.FirstOrDefault(c => c.AtemInput == id && c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0);
-    }
+    /// <summary>Whether this source has a live picture to show (a Canon's own, or NDI; a mix shows what's live on it).</summary>
+    private static bool HasPic(int? input) => Pictures.Has(input);
 
     private FrameworkElement Thumb(Func<int?> input, double w, double h)
     {
         var img = new Image { Stretch = Stretch.UniformToFill };
         var g = new Grid { Width = w, Height = h, Background = Brushes.Black, ClipToBounds = true };
         g.Children.Add(img);
-        Live(() =>
-        {
-            var feed = CameraFor(input()) is PTZCamera c ? CanonFeedHub.Feed(c) : null;
-            img.Source = feed?.IsLive == true ? feed.Image : null;
-        });
+        Live(() => img.Source = Pictures.Image(input()));
         return g;
     }
 
@@ -80,9 +67,8 @@ internal sealed class RoutingPage : LiveView
     protected override UIElement Build()
     {
         _srcEls.Clear(); _dstEls.Clear();
-        // Keep the Canon pictures running while this page shows.
-        foreach (var c in B.Ptz.Cameras.Where(c => c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0 && c.AtemInput != null))
-            if (_retained.Add(c.Id)) CanonFeedHub.Retain(c);
+        // Keep every source's picture running while this page shows.
+        _pics.Want(S.AuxSources.Select(i => (int?)i.Id));
 
         var col = new StackPanel();
         col.Children.Add(EngineerView.Heading("Routing", "What each mix is for, what every screen shows and where it's wired, and the operator's routing buttons."));
@@ -233,8 +219,19 @@ internal sealed class RoutingPage : LiveView
 
     private Button SourceRow(int id)
     {
-        var pic = CameraFor(id) != null;
+        var pic = HasPic(id);
         var dock = new DockPanel { LastChildFill = true };
+        // The pencil on a source: the NDI picture that shows what this switcher input carries.
+        // Only for looking at here; it changes nothing on the switcher. A Canon shows its own.
+        if (id >= 1 && id <= 999 && Pictures.Canon(id) == null)
+        {
+            var input = id;
+            Button? pencil = null;
+            pencil = T.Button(T.Text("✎", 14, null, T.InkMuted), () => NdiPicker.Open(pencil!, Store.Ndi(input), "No picture, just the name", n => Store.SetPicture(input, n)),
+                T.Transparent, T.Transparent, 28, 28, 4, new Thickness(0), "Choose a live NDI picture for this source");
+            DockPanel.SetDock(pencil, Dock.Right);
+            dock.Children.Add(pencil);
+        }
         if (id >= 1 && id <= 999) { var p = Port($"IN {id}"); DockPanel.SetDock(p, Dock.Right); dock.Children.Add(p); }
         if (pic) { var th = Thumb(() => id, 120, 68); th.Margin = new Thickness(0, 0, 10, 0); DockPanel.SetDock(th, Dock.Left); dock.Children.Add(th); }
         var words = new WrapPanel { VerticalAlignment = VerticalAlignment.Center };
@@ -324,7 +321,7 @@ internal sealed class RoutingPage : LiveView
         dock.Children.Add(pencil);
         if (locked) { var l = T.Text("🔒", 12, null, T.Warning).With(t => { t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(4, 0, 4, 0); }); DockPanel.SetDock(l, Dock.Right); dock.Children.Add(l); }
         var (src, _) = RoutingEdit.Now(sc, S);
-        var pic = CameraFor(src) != null;
+        var pic = HasPic(src);
         var port = Port("OUT " + string.Join("+", sc.Aux));
         port.Margin = new Thickness(0, 0, 8, 0);
         DockPanel.SetDock(port, Dock.Left);

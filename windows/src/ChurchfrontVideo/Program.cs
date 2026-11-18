@@ -43,6 +43,7 @@ public static class Program
         }
         booth.Start();
         Snapshots.Imaging = CanonFeedHub.Imaging;
+        Snapshots.ToJpeg = Pictures.Jpeg;
 
         // Auto tracking: Canon pictures in, the pose model finds people. The model takes a
         // second or two to load, so it does that in the background.

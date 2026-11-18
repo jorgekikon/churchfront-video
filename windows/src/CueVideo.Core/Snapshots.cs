@@ -4,8 +4,9 @@ using CueATEM;
 
 namespace CueVideo;
 
-/// <summary>Still pictures from the Canon cameras, measured for color, so Claude can compare
-/// them. Decoding the picture is the app's job (it has the imaging code): it sets <see cref="Imaging"/>.</summary>
+/// <summary>Still pictures from the cameras (a Canon's own, or the NDI picture set for a camera's
+/// switcher input), measured for color, so Claude can compare them. Decoding and encoding
+/// pictures is the app's job (it has the imaging code): it sets <see cref="Imaging"/> and <see cref="ToJpeg"/>.</summary>
 public static class Snapshots
 {
     public sealed record Result(JsonObject Info, JsonObject? Image);
@@ -14,27 +15,52 @@ public static class Snapshots
     /// (base64), or null if it isn't a picture. Set by the app.</summary>
     public static Func<byte[], bool, (JsonObject Measure, string? Jpeg640)?>? Imaging;
 
+    /// <summary>An NDI frame as a JPEG. Set by the app.</summary>
+    public static Func<NdiFrame, byte[]?>? ToJpeg;
+
     private static readonly HttpClient Http = new(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(5) };
 
+    /// <summary>Whether a camera gives a picture: a Canon, or one with an NDI picture. Main thread.</summary>
+    public static bool HasPicture(PTZCamera c) => (c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0) || NdiFor(c) != null;
+
+    private static string? NdiFor(PTZCamera c) => c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0 ? null : Booth.Shared.Store.Ndi(c.AtemInput);
+
+    /// <summary>Takes a still from each camera. Call on the main thread.</summary>
     public static void Take(List<PTZCamera> cams, bool pictures, Action<List<Result>> done)
     {
+        // NDI pictures: start receiving now (NdiHub is the main thread's), let go when done.
+        var ndi = cams.ToDictionary(c => c.Id, NdiFor);
+        var feeds = new Dictionary<Guid, NdiFeed>();
+        foreach (var (id, n) in ndi) if (n != null) { NdiHub.Retain(n); feeds[id] = NdiHub.Feed(n); }
         Task.Run(async () =>
         {
             var tasks = cams.Select(async c =>
             {
                 JsonObject Err(string m) => new() { ["camera"] = c.Name, ["error"] = m };
-                if (c.Proto != VISCAProtocol.CanonXC || c.Host.Length == 0)
-                    return new Result(Err($"{c.Name} has no picture in Churchfront Video on Windows yet (only Canon cameras do for now)."), null);
-                byte[] data;
-                var port = c.Port == 80 ? "" : ":" + c.Port;
-                try { data = await Http.GetByteArrayAsync("http://" + c.Host + port + "/-wvhttp-01-/image.cgi"); }
-                catch { return new Result(Err($"No picture from {c.Name}."), null); }
-                if (Imaging?.Invoke(data, pictures) is not (JsonObject info, var jpg)) return new Result(Err($"No picture from {c.Name}."), null);
+                byte[]? data = null;
+                if (feeds.TryGetValue(c.Id, out var feed))
+                {
+                    // Wait up to 4 seconds for a picture that's coming in now.
+                    for (int i = 0; i < 40 && !(feed.IsLive && feed.Frame != null); i++) await Task.Delay(100);
+                    if (feed.IsLive && feed.Frame is NdiFrame f) data = ToJpeg?.Invoke(f);
+                    if (data == null) return new Result(Err($"No picture from {c.Name}'s NDI source ({ndi[c.Id]}). Check it's on the network with list_ndi_sources."), null);
+                }
+                else if (c.Proto != VISCAProtocol.CanonXC || c.Host.Length == 0)
+                    return new Result(Err($"{c.Name} has no picture: it isn't a Canon, and no NDI picture is set for its switcher input."), null);
+                else
+                {
+                    var port = c.Port == 80 ? "" : ":" + c.Port;
+                    try { data = await Http.GetByteArrayAsync("http://" + c.Host + port + "/-wvhttp-01-/image.cgi"); }
+                    catch { return new Result(Err($"No picture from {c.Name}."), null); }
+                }
+                if (Imaging?.Invoke(data!, pictures) is not (JsonObject info, var jpg)) return new Result(Err($"No picture from {c.Name}."), null);
                 info["camera"] = c.Name;
                 JsonObject? image = pictures && jpg != null ? new JsonObject { ["label"] = c.Name, ["mimeType"] = "image/jpeg", ["data"] = jpg } : null;
                 return new Result(info, image);
             });
-            done((await Task.WhenAll(tasks)).ToList());
+            var results = (await Task.WhenAll(tasks)).ToList();
+            MainThread.Post(() => { foreach (var n in ndi.Values) if (n != null) NdiHub.Release(n); });
+            done(results);
         });
     }
 

@@ -261,6 +261,18 @@ public sealed class ConfigStore
         return Config.Pictures.TryGetValue(i.ToString(CultureInfo.InvariantCulture), out var p) && p.Length > 0 ? p : null;
     }
 
+    /// <summary>Sets or clears an input's NDI picture: on its source row entry if it has one, else in `pictures`.</summary>
+    public void SetPicture(int input, string? ndi)
+    {
+        Update(c =>
+        {
+            var key = input.ToString(CultureInfo.InvariantCulture);
+            if (c.Sources.FirstOrDefault(s => s.Input == input) is VolunteerSource s) s.Ndi = string.IsNullOrEmpty(ndi) ? null : ndi;
+            else if (string.IsNullOrEmpty(ndi)) c.Pictures.Remove(key);
+            else c.Pictures[key] = ndi;
+        });
+    }
+
     /// <summary>What an M/E is for: "Live stream (M/E 1)", or just "M/E 2".</summary>
     public string MixName(int me)
     {

@@ -194,6 +194,46 @@ try
     r = Tool("stop_tracking", new JsonObject { ["all"] = true });
     Check(r["ok"] != null && Wait(() => fakeLog.Any(l => l.Contains("pan=stop"))), "stop_tracking stops the camera");
 
+    // MARK: NDI (with the runtime installed, a real round trip on this computer)
+    Check(Ndi.Match("OLD-PC (Lower third)", new[] { "BOOTH (Lower third)", "BOOTH (Slides)" }) == "BOOTH (Lower third)"
+          && Ndi.Match("OLD-PC (Slides)", new[] { "A (Slides)", "B (Slides)" }) == "OLD-PC (Slides)", "an NDI source whose computer name changed is found by its channel, unless that's ambiguous");
+    Check(Ndi.ShortName("BOOTH-PC.LOCAL (ATEM Multiview)") == "ATEM Multiview · booth-pc" && Ndi.Channel("No channel") == null, "NDI names read as channel · computer");
+    if (Ndi.Load())
+    {
+        const int nw = 160, nh = 90;
+        var npx = new byte[nw * nh * 4];
+        for (int i = 0; i < nw * nh; i++) { npx[i * 4] = 30; npx[i * 4 + 1] = 160; npx[i * 4 + 2] = 220; npx[i * 4 + 3] = (byte)(i % nw < nw / 2 ? 255 : 0); }
+        var sender = Ndi.SendOpen("Churchfront smoke");
+        var sending = true;
+        var sendThread = new Thread(() => { while (sending) { Ndi.SendFrame(sender, npx, nw, nh); Thread.Sleep(40); } }) { IsBackground = true };
+        sendThread.Start();
+        try
+        {
+            JsonArray? listed = null;
+            for (int i = 0; i < 4 && listed?.Any(n => n!.ToString().EndsWith("(Churchfront smoke)")) != true; i++) listed = Tool("list_ndi_sources")["sources"] as JsonArray;
+            Check(listed?.Any(n => n!.ToString().EndsWith("(Churchfront smoke)")) == true, "list_ndi_sources finds an NDI source on the network");
+            OnMain(() => { NdiHub.Retain("SOMEWHERE-ELSE (Churchfront smoke)"); return 0; });
+            var feed = OnMain(() => NdiHub.Feed("SOMEWHERE-ELSE (Churchfront smoke)"));
+            Check(Wait(() => feed.IsLive && feed.Frame != null, 8), "receives an NDI picture");
+            var nf = feed.Frame;
+            Check(nf is { Width: nw, Height: nh, Alpha: true } && nf.Bgra[3] == 255 && nf.Bgra[(nw - 1) * 4 + 3] == 0, "keeps the NDI picture's alpha, for lower thirds");
+            Check(nf?.ToTrackFrame() is { Width: nw, Height: nh } tf && tf.Bgr[2] == nf.Bgra[2], "turns it into a picture auto tracking can use");
+            // A VISCA camera given that NDI picture: snapshots and tracking can use it.
+            OnMain(() => { booth.Store.SetPicture(1, "SOMEWHERE-ELSE (Churchfront smoke)"); return 0; });
+            Check(OnMain(() => Snapshots.HasPicture(visca)), "a VISCA camera with an NDI picture has a picture");
+            var (wasImaging, wasJpeg) = (Snapshots.Imaging, Snapshots.ToJpeg);
+            Snapshots.ToJpeg = f => new byte[] { 1, 2, 3 };
+            Snapshots.Imaging = (_, _) => (new JsonObject { ["brightness"] = 99 }, null);
+            r = Tool("camera_snapshots", new JsonObject { ["cameras"] = new JsonArray("Center"), ["pictures"] = false });
+            Check(r["cameras"]?[0]?["brightness"]?.GetValue<int>() == 99, "camera_snapshots takes a still from an NDI picture");
+            (Snapshots.Imaging, Snapshots.ToJpeg) = (wasImaging, wasJpeg);
+            Check(Tool("get_status")["ndi_previews"]?.AsArray().Any(p => p?["receiving"]?.ToString() == "true") == true, "get_status says which NDI pictures are coming in");
+            OnMain(() => { booth.Store.SetPicture(1, null); NdiHub.Release("SOMEWHERE-ELSE (Churchfront smoke)"); return 0; });
+        }
+        finally { sending = false; sendThread.Join(); Ndi.SendClose(sender); }
+    }
+    else Check(Tool("list_ndi_sources")["error"]?.ToString().Contains("NDI Tools") == true, "without the NDI runtime, list_ndi_sources says to install NDI Tools");
+
     // MARK: Routing editor (the page itself was tried in the app with UI Automation)
     var rc = new CueConfig { Screens = new() { new() { Name = "Side screens", Aux = new() { 1, 2 } }, new() { Name = "Lobby", Aux = new() { 3 }, Volunteer = false, Note = "Converter 1" } } };
     Check(RoutingEdit.ParseAux("4, 5") is [4, 5] && RoutingEdit.ParseAux("4+5 0 x") is [4, 5], "reads aux outputs written as 4, 5 or 4+5");

@@ -128,7 +128,7 @@ internal sealed class SetupPage : LiveView
                 ? "Not set up yet, so the operator sees every camera's input. Add sources to choose exactly which, in what order."
                 : "No sources yet.", 13, null, T.InkMuted, wrap: true).Margin(0, 0, 0, 10));
         }
-        else col.Children.Add(T.Row(8, Label("", 30), Label("Switcher input", 240), Label("Label (optional)", 200)).Margin(0, 0, 0, 6));
+        else col.Children.Add(T.Row(8, Label("", 30), Label("Switcher input", 240), Label("Label (optional)", 200), Label("Picture", 280)).Margin(0, 0, 0, 6));
         for (int i = 0; i < list.Count; i++)
         {
             var idx = i;
@@ -142,7 +142,13 @@ internal sealed class SetupPage : LiveView
             var down = T.Small("↓", () => Store.Update(c => { if (idx < c.Sources.Count - 1) (c.Sources[idx + 1], c.Sources[idx]) = (c.Sources[idx], c.Sources[idx + 1]); }), "Move right");
             var del = T.Small("Remove", () => Store.Update(c => c.Sources.RemoveAt(idx)), danger: true);
             var key = T.Text(idx < 10 ? ((idx + 1) % 10).ToString(CultureInfo.InvariantCulture) : "", 13, FontWeights.Bold, T.InkSubtle).With(t => t.Width = 30);
-            col.Children.Add(T.Row(8, key, picker, label, up, down, del).Margin(0, 0, 0, 8));
+            // Its tile and the Next and Live pictures: a Canon camera's own, or an NDI source.
+            var input = src.Input;
+            UIElement pictureChoice = Pictures.Canon(input) != null
+                ? T.Text("🎥 The camera's own picture", 12, null, T.InkSubtle).With(t => { t.Width = 280; t.VerticalAlignment = VerticalAlignment.Center; })
+                : NdiPicker.Make(src.Ndi, "No picture", n => Store.Update(c => { if (idx < c.Sources.Count) c.Sources[idx].Ndi = n; }), 280,
+                    "An NDI source showing what this input carries, such as a PTZOptics camera or a Churchfront Screens screen sent to NDI, for its tile and the Next and Live pictures.");
+            col.Children.Add(T.Row(8, key, picker, label, pictureChoice, up, down, del).Margin(0, 0, 0, 8));
         }
         var add = T.Small("+ Add a source", () =>
         {
@@ -167,7 +173,7 @@ internal sealed class SetupPage : LiveView
         var col = new StackPanel();
         var list = Store.Config.Keys;
         if (list.Count == 0) col.Children.Add(T.Text("No key buttons yet.", 13, null, T.InkMuted).Margin(0, 0, 0, 10));
-        else col.Children.Add(T.Row(8, Label("Label", 200), Label("Key", 180), Label("", 0)).Margin(0, 0, 0, 6));
+        else col.Children.Add(T.Row(8, Label("Label", 200), Label("Key", 180), Label("Preview picture", 280)).Margin(0, 0, 0, 6));
         for (int i = 0; i < list.Count; i++)
         {
             var idx = i;
@@ -186,8 +192,10 @@ internal sealed class SetupPage : LiveView
                 choices.Add(($"DSK {dsk}", () => Store.Update(c => { c.Keys[idx].Dsk = dsk; c.Keys[idx].Me = null; c.Keys[idx].Keyer = null; })));
             }
             var picker = T.Picker(k.Target, choices, 180);
+            var preview = NdiPicker.Make(k.Ndi, "No preview", n => Store.Update(c => { if (idx < c.Keys.Count) c.Keys[idx].Ndi = n; }), 280,
+                "An NDI source with alpha showing this key, such as Churchfront Screens' lower thirds sent to NDI with alpha. It's laid over the Next and Live pictures when the key is on them.");
             var del = T.Small("Remove", () => Store.Update(c => c.Keys.RemoveAt(idx)), danger: true);
-            col.Children.Add(T.Row(8, label, picker, del).Margin(0, 0, 0, 8));
+            col.Children.Add(T.Row(8, label, picker, preview, del).Margin(0, 0, 0, 8));
         }
         col.Children.Add(T.Small("+ Add a key button", () => Store.Update(c => c.Keys.Add(new KeyButton { Label = "Lower thirds", Me = 1, Keyer = 1 })))
             .With(b => b.HorizontalAlignment = HorizontalAlignment.Left).Margin(0, 4, 0, 0));

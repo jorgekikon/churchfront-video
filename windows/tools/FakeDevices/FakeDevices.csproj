@@ -9,4 +9,8 @@
     <UseWPF>true</UseWPF>
     <InvariantGlobalization>false</InvariantGlobalization>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- The NDI runtime loader, for the fake NDI sources. -->
+    <ProjectReference Include="..\..\src\CueVideo.Core\CueVideo.Core.csproj" />
+  </ItemGroup>
 </Project>

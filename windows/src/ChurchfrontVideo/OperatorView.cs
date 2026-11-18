@@ -21,7 +21,7 @@ public sealed class OperatorView : LiveView
 
     /// <summary>The shot each camera was last sent to, lit in the grid.</summary>
     private readonly Dictionary<Guid, string> _lastUsed = new();
-    private readonly HashSet<Guid> _retained = new();
+    private readonly Pictures.Keeper _pics = new();
 
     public OperatorView() { Background = T.Bg; }
 
@@ -54,24 +54,22 @@ public sealed class OperatorView : LiveView
         return sb.ToString();
     }
 
-    public override void Teardown()
-    {
-        foreach (var id in _retained) if (Ptz.Camera(id) is PTZCamera c) CanonFeedHub.Release(c);
-        _retained.Clear();
-    }
+    public override void Teardown() => _pics.Clear();
 
-    /// <summary>Keeps the pictures running for the cameras on Next and Live.</summary>
-    private void RetainPictures()
-    {
-        var want = Ptz.Cameras.Where(c => c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0 && c.AtemInput is int i
-                                          && (S.PreviewOf(B.Me) == i || S.ProgramOf(B.Me) == i || Store.VolunteerSources(S).Any(v => v.Input == i)))
-                              .Select(c => c.Id).ToHashSet();
-        foreach (var id in _retained.Except(want).ToList()) { if (Ptz.Camera(id) is PTZCamera c) CanonFeedHub.Release(c); _retained.Remove(id); }
-        foreach (var id in want.Except(_retained).ToList()) { if (Ptz.Camera(id) is PTZCamera c) CanonFeedHub.Retain(c); _retained.Add(id); }
-    }
+    /// <summary>Keeps the pictures running for Next, Live, the source tiles and the keys' NDI overlays.</summary>
+    private void RetainPictures() =>
+        _pics.Want(new[] { S.PreviewOf(B.Me), S.ProgramOf(B.Me) }.Concat(Store.VolunteerSources(S).Select(v => (int?)v.Input)),
+                   Store.Config.Keys.Select(k => k.Ndi ?? ""));
 
+    /// <summary>The camera on this input, when its picture is showing (a Canon's own, or NDI).</summary>
     private static PTZCamera? PicturedOn(int? input) =>
-        input is int i ? Ptz.Cameras.FirstOrDefault(c => c.AtemInput == i && c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0) : null;
+        input is int i && Pictures.Has(i) ? Ptz.Cameras.FirstOrDefault(c => c.AtemInput == i && c.Host.Length > 0) : null;
+
+    /// <summary>Keys with an NDI picture (a lower third with alpha), laid over a monitor when the key
+    /// is on it: on Live when it's on air, on Next when it will be after the take.</summary>
+    private static IEnumerable<KeyButton> Overlays(bool live, int? input) =>
+        Store.Config.Keys.Where(k => !string.IsNullOrEmpty(k.Ndi) && k.Ndi != Pictures.Ndi(input)
+                                     && (k.Dsk != null || (k.Me ?? 1) - 1 == B.Me) && (live ? k.IsOn(S) : k.OnNext(S)));
 
     protected override UIElement Build()
     {
@@ -140,7 +138,12 @@ public sealed class OperatorView : LiveView
         var topRight = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 22, 22, 0) };
         topRight.Children.Add(trackBadge);
         keys.Margin = new Thickness(0, 8, 0, 0); keys.HorizontalAlignment = HorizontalAlignment.Right;
-        inner.Children.Add(name); inner.Children.Add(img); inner.Children.Add(overlay); inner.Children.Add(badge); inner.Children.Add(topRight); inner.Children.Add(progress);
+        // Lower thirds and other keys with an NDI picture, over the shot when the key is on it.
+        var keyLayer = new Grid { IsHitTestVisible = false };
+        var keyImages = Store.Config.Keys.Where(k => !string.IsNullOrEmpty(k.Ndi)).Select(k => k.Ndi!).Distinct()
+            .ToDictionary(n => n, n => new Image { Stretch = Stretch.Uniform, Visibility = Visibility.Collapsed });
+        foreach (var ki in keyImages.Values) keyLayer.Children.Add(ki);
+        inner.Children.Add(name); inner.Children.Add(img); inner.Children.Add(keyLayer); inner.Children.Add(overlay); inner.Children.Add(badge); inner.Children.Add(topRight); inner.Children.Add(progress);
         // Clicking a person on Next follows them. On Live, a click only switches who an
         // already-tracking camera follows, so a stray click can't start moving the live shot.
         PTZCamera? Pickable()
@@ -171,11 +174,17 @@ public sealed class OperatorView : LiveView
         {
             var i = input();
             var cam = PicturedOn(i);
-            var feed = cam != null ? CanonFeedHub.Feed(cam) : null;
-            var pic = feed?.IsLive == true ? feed.Image : null;
+            var pic = Pictures.Image(i);
             img.Source = pic;
             name.Text = Store.Label(i, S);
             name.Visibility = pic == null ? Visibility.Visible : Visibility.Collapsed;
+            var showing = Overlays(title == "LIVE", i).Select(k => k.Ndi!).ToHashSet();
+            foreach (var (n, ki) in keyImages)
+            {
+                var src = showing.Contains(n) ? Pictures.NdiImage(n) : null;
+                ki.Source = src;
+                ki.Visibility = src != null ? Visibility.Visible : Visibility.Collapsed;
+            }
             var on = Store.Config.Keys.Where(k => title == "LIVE" ? k.IsOn(S) : k.OnNext(S)).Select(k => k.Label).ToList();
             keys.Text = on.Count > 0 ? "+ " + string.Join(", ", on) : "";
             var fading = title == "LIVE" && S.Get(S.InTransition, B.Me);
@@ -241,9 +250,7 @@ public sealed class OperatorView : LiveView
                 var live = S.ProgramOf(B.Me) == input; var next = S.PreviewOf(B.Me) == input;
                 tile.BorderBrush = live ? T.Program : next ? T.Preview : T.Line;
                 tile.BorderThickness = new Thickness(live || next ? 3 : 1);
-                var cam = PicturedOn(input);
-                var feed = cam != null ? CanonFeedHub.Feed(cam) : null;
-                img.Source = feed?.IsLive == true ? feed.Image : null;
+                img.Source = Pictures.Image(input);
             });
             row.Children.Add(tile);
         }
@@ -516,7 +523,7 @@ public sealed class OperatorView : LiveView
                 : s != null ? "Stop following (Esc stops every tracking camera). Moving the joystick or recalling a shot also stops it."
                 : can ? "Follow the person in the middle of the shot. Or click someone on the Next picture. Moving the joystick stops tracking."
                 : Tracker.Detector == null ? Tracker.Unavailable ?? "Auto tracking isn't set up on this computer."
-                : "Auto tracking needs the camera's own picture: on Windows, that's a Canon camera.";
+                : "Auto tracking needs the camera's picture: a Canon camera's own, or an NDI picture set for its switcher input in Setup.";
             sizes.Visibility = speedRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
             byName.Visibility = s == null && can && StageCast.Shared.Names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             foreach (var (z, b, l) in sizeButtons)

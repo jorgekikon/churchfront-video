@@ -14,11 +14,13 @@ using System.Windows.Media.Imaging;
 // (open, claim, control, info and an MJPEG video.cgi). Prints every command received.
 //   --picture <photo>  (one or more) the Canon looks at a virtual stage made from photos with people in them,
 //                      and pans, tilts and zooms over it as told, for trying auto tracking and the stage scan.
+//   --ndi              NDI sources "Stage camera" (what the fake Canon sees) and "Lower third" (alpha).
 
 var port = args.FirstOrDefault(a => int.TryParse(a, out _)) is string p ? int.Parse(p) : 9910;
 for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "--picture") FakeCanon.Stage.Add(args[i + 1]);
 if (args.Contains("--cams")) FakeCams.Start();
-if (args.Contains("--canon")) FakeCanon.Start(8091);
+if (args.Contains("--ndi")) FakeNdi.Start();
+if (args.Contains("--canon") || args.Contains("--ndi")) FakeCanon.Start(8091);
 new Switcher(port).Run();
 
 sealed class Switcher
@@ -406,6 +408,7 @@ static class FakeCanon
             using var ms = new MemoryStream();
             enc.Save(ms);
             _frame = ms.ToArray();
+            FakeNdi.Camera(outPx, ow, oh);
             Thread.Sleep(40);
         }
     }
@@ -429,6 +432,7 @@ static class FakeCanon
             }
             var bmp = new RenderTargetBitmap(640, 360, 96, 96, PixelFormats.Pbgra32);
             bmp.Render(dv);
+            if (FakeNdi.On) { var px = new byte[640 * 360 * 4]; bmp.CopyPixels(px, 640 * 4, 0); FakeNdi.Camera(px, 640, 360); }
             var enc = new JpegBitmapEncoder { QualityLevel = 70 };
             enc.Frames.Add(BitmapFrame.Create(bmp));
             using var ms = new MemoryStream();
@@ -528,5 +532,60 @@ static class FakeCanon
             await s.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {data.Length}\r\nConnection: close\r\n\r\n"));
             await s.WriteAsync(data);
         }
+    }
+}
+
+/// <summary>--ndi: NDI sources standing in for the network's cameras and graphics. "Stage
+/// camera" sends what the fake Canon sees (the virtual stage with --picture, else the moving
+/// test picture), so a VISCA camera can be given it as its NDI picture; "Lower third" sends a
+/// name bar on a transparent background (straight alpha), for key overlays.</summary>
+static class FakeNdi
+{
+    public static bool On;
+    static IntPtr _camera;
+    static DateTime _last;
+
+    public static void Start()
+    {
+        if (!CueVideo.Ndi.Load()) { Console.WriteLine("NDI isn't installed, so no fake NDI sources (install NDI Tools)."); return; }
+        On = true;
+        _camera = CueVideo.Ndi.SendOpen("Stage camera");
+        Console.WriteLine($"Fake NDI sources: Stage camera, Lower third (runtime {CueVideo.Ndi.Loaded})");
+        var t = new Thread(LowerThird) { IsBackground = true };
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+    }
+
+    /// <summary>A camera frame, BGRA (opaque). At most 25 a second.</summary>
+    public static void Camera(byte[] bgra, int w, int h)
+    {
+        if (!On || (DateTime.UtcNow - _last).TotalMilliseconds < 38) return;
+        _last = DateTime.UtcNow;
+        CueVideo.Ndi.SendFrame(_camera, bgra, w, h, 25, 1);
+    }
+
+    static void LowerThird()
+    {
+        var send = CueVideo.Ndi.SendOpen("Lower third");
+        const int w = 640, h = 360;
+        var dv = new DrawingVisual();
+        using (var dc = dv.RenderOpen())
+        {
+            dc.DrawRoundedRectangle(new SolidColorBrush(Color.FromRgb(20, 70, 160)), null, new Rect(40, 270, 360, 56), 6, 6);
+            var ft = new FormattedText("Pastor Sam · Welcome", System.Globalization.CultureInfo.InvariantCulture, FlowDirection.LeftToRight, new Typeface("Segoe UI Semibold"), 26, Brushes.White, 1.0);
+            dc.DrawText(ft, new Point(56, 282));
+        }
+        var bmp = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(dv);
+        var px = new byte[w * h * 4];
+        bmp.CopyPixels(px, w * 4, 0);
+        // WPF draws premultiplied; NDI's BGRA is straight alpha.
+        for (int i = 0; i < px.Length; i += 4)
+        {
+            var a = px[i + 3];
+            if (a is 0 or 255) continue;
+            for (int c = 0; c < 3; c++) px[i + c] = (byte)Math.Min(255, px[i + c] * 255 / a);
+        }
+        while (true) { CueVideo.Ndi.SendFrame(send, px, w, h, 25, 1); Thread.Sleep(40); }
     }
 }

@@ -219,10 +219,21 @@ public sealed class StillImages : IStillImages
 /// <summary>Tracking's pictures on Windows: a Canon camera's own preview stream.</summary>
 public sealed class TrackPictures : ITrackPictures
 {
-    public bool Has(PTZCamera c) => c.Proto == CueATEM.VISCAProtocol.CanonXC && c.Host.Length > 0;
+    /// <summary>A Canon camera's own preview, or for other cameras (PTZOptics, BirdDog…) the NDI
+    /// picture set for their switcher input.</summary>
+    public bool Has(PTZCamera c) => (c.Proto == CueATEM.VISCAProtocol.CanonXC && c.Host.Length > 0) || NdiOf(c) != null;
+
+    private static string? NdiOf(PTZCamera c) => c.Proto == CueATEM.VISCAProtocol.CanonXC && c.Host.Length > 0 ? null : Booth.Shared.Store.Ndi(c.AtemInput);
 
     public Action Watch(PTZCamera c, Action<TrackFrame> frame)
     {
+        if (NdiOf(c) is string n)
+        {
+            NdiHub.Retain(n);
+            var nf = NdiHub.Feed(n);
+            nf.AddTracker(frame);
+            return () => { nf.RemoveTracker(frame); NdiHub.Release(n); };
+        }
         CanonFeedHub.Retain(c);
         var feed = CanonFeedHub.Feed(c);
         feed?.AddTracker(frame);
