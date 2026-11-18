@@ -9,7 +9,8 @@ namespace CueVideo.App;
 
 /// <summary>The one window: a top bar, then the Operator or Engineer view. Keyboard: 1 to 9 and 0
 /// put that tile of the source row on Next, Shift puts it on Live, Space cuts, Enter fades,
-/// arrows move the camera on Next. Only in the Operator view, and never while typing.</summary>
+/// arrows move the camera on Next. Only in the Operator view, and never while typing.
+/// The Mac's menu shortcuts (Ctrl for ⌘) work on every page: see Shortcut.</summary>
 public sealed class MainWindow : Window
 {
     public const string WindowTitle = "Churchfront Video";
@@ -38,7 +39,7 @@ public sealed class MainWindow : Window
 
         // Top bar
         _opText = T.Text("Operator", 13, FontWeights.SemiBold); _enText = T.Text("Engineer", 13, FontWeights.SemiBold);
-        _opTab = T.Button(_opText, () => B.View = AppView.Operate, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "The booth screen");
+        _opTab = T.Button(_opText, () => B.View = AppView.Operate, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "The booth screen (Ctrl+1)");
         _enTab = T.Button(_enText, () => B.View = AppView.Engineer, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "Routing, full switcher, setup and status");
         var seg = new Border { Background = T.SurfaceSunken, BorderBrush = T.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2), Child = T.Row(2, _opTab, _enTab) };
         _status = T.Text("", 13, FontWeights.SemiBold);
@@ -46,7 +47,7 @@ public sealed class MainWindow : Window
         _record = new T.LitButton(() => Toggle(recording: true), 110, 30, 12);
         _stream = new T.LitButton(() => Toggle(recording: false), 110, 30, 12);
         _record.Button.Margin = new Thickness(0, 0, 8, 0); _stream.Button.Margin = new Thickness(0, 0, 8, 0);
-        var gear = T.Button(T.Text("⚙", 16, null, T.InkMuted), () => B.Show(EngineerSection.Setup), T.Transparent, T.Transparent, 34, 30, 6, new Thickness(0), "Setup");
+        var gear = T.Button(T.Text("⚙", 16, null, T.InkMuted), () => B.Show(EngineerSection.Setup), T.Transparent, T.Transparent, 34, 30, 6, new Thickness(0), "Setup (Ctrl+,)");
         var right = T.Row(0, _record.Button, _stream.Button, gear);
         right.VerticalAlignment = VerticalAlignment.Center;
         var bar = new DockPanel { Height = 64, Margin = new Thickness(20, 0, 16, 0) };
@@ -149,9 +150,44 @@ public sealed class MainWindow : Window
         ExposureWindow.RefreshOpen();
     }
 
+    /// <summary>The Mac's menu shortcuts, with Ctrl for ⌘, on every page (they don't clash with
+    /// typing: Ctrl+C, V, X, Z and A are left to text fields). Returns true when one was used.
+    ///   Ctrl+1 Operator · Ctrl+, Setup · Ctrl+Shift+S Stage scan · Ctrl+Shift+R Routing ·
+    ///   Ctrl+Shift+K Full switcher · Ctrl+T track the camera on Next (again: stop) ·
+    ///   Ctrl+. stop all tracking · Ctrl+Shift+F focus the camera on Next</summary>
+    private bool Shortcut(KeyEventArgs e) =>
+        !e.IsRepeat && Shortcut(e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key, Keyboard.Modifiers);
+
+    public bool Shortcut(Key key, ModifierKeys mods)
+    {
+        if ((mods & ModifierKeys.Control) == 0 || (mods & (ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return false;
+        var shift = (mods & ModifierKeys.Shift) != 0;
+        switch (key, shift)
+        {
+            case (System.Windows.Input.Key.D1 or System.Windows.Input.Key.NumPad1, false): B.View = AppView.Operate; return true;
+            case (System.Windows.Input.Key.OemComma, false): B.Show(EngineerSection.Setup); return true;
+            case (System.Windows.Input.Key.S, true): B.Show(EngineerSection.Scan); return true;
+            case (System.Windows.Input.Key.R, true): B.Show(EngineerSection.Routing); return true;
+            case (System.Windows.Input.Key.K, true): B.Show(EngineerSection.Switcher); return true;
+            case (System.Windows.Input.Key.OemPeriod, false): AutoTracker.Shared.StopAll(); return true;
+            case (System.Windows.Input.Key.T, false):
+                if (B.CameraOnNext is PTZCamera t)
+                {
+                    if (AutoTracker.Shared.IsTracking(t.Id)) AutoTracker.Shared.Stop(t.Id);
+                    else if (AutoTracker.Shared.CanTrack(t)) AutoTracker.Shared.Start(t);
+                }
+                return true;
+            case (System.Windows.Input.Key.F, true):
+                if (B.CameraOnNext is PTZCamera f) B.Ptz.FocusOnce(f.Id);
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>The booth keys. Returns true when the key was used.</summary>
     private bool Key(KeyEventArgs e, bool down)
     {
+        if (down && IsActive && Shortcut(e)) return true;
         if (B.View != AppView.Operate || !IsActive) { B.ReleaseArrows(); return false; }
         if (Keyboard.FocusedElement is TextBox or PasswordBox) return false;
         if ((Keyboard.Modifiers & (ModifierKeys.Control | ModifierKeys.Alt | ModifierKeys.Windows)) != 0) return false;

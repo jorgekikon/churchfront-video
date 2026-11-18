@@ -50,7 +50,8 @@ public sealed class EngineerView : Grid
         {
             var t1 = T.Text(s.Title(), 13, FontWeights.SemiBold); var t2 = T.Text(sub, 11, null, T.InkMuted);
             var section = s;
-            var b = T.Button(T.Column(1, t1, t2), () => B.Show(section), T.Transparent, T.Transparent, h: 46, radius: 8, pad: new Thickness(12, 4, 8, 4));
+            var b = T.Button(T.Column(1, t1, t2), () => B.Show(section), T.Transparent, T.Transparent, h: 46, radius: 8, pad: new Thickness(12, 4, 8, 4),
+                tip: s switch { EngineerSection.Scan => "Ctrl+Shift+S", EngineerSection.Routing => "Ctrl+Shift+R", EngineerSection.Switcher => "Ctrl+Shift+K", EngineerSection.Setup => "Ctrl+,", _ => null });
             b.HorizontalContentAlignment = HorizontalAlignment.Left;
             b.Margin = new Thickness(0, 0, 0, 2);
             _tabs.Add((s, b, t1, t2));

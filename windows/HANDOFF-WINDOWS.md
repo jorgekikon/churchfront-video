@@ -121,7 +121,16 @@ on real hardware and packaging.
   %APPDATA%\CueVideo\models, then windows\models when run from the repo. Without it, Track is greyed out and
   says why; get_status reports "auto_tracking".
 - Log for tuning: %APPDATA%\CueVideo\Logs\tracking.csv (same columns as the Mac's).
-- Esc stops every tracking camera (the Mac's Command-period).
+- Esc (on Operator) or Ctrl+. (anywhere) stops every tracking camera (the Mac's Command-period).
+
+## Keyboard shortcuts
+- The Mac's menu shortcuts, Ctrl for ⌘, on every page (MainWindow.Shortcut): Ctrl+1 Operator, Ctrl+, Setup,
+  Ctrl+Shift+S Stage scan, Ctrl+Shift+R Routing, Ctrl+Shift+K Full switcher, Ctrl+T track the camera on Next
+  (again to stop), Ctrl+. stop all tracking, Ctrl+Shift+F focus the camera on Next. They're in the tooltips.
+  Ctrl+C, V, X, Z and A are left to text fields. The booth keys (1-0, Shift+n, Space, Return, arrows) are
+  unchanged and still only on Operator.
+- Checked with CUEVIDEO_KEYS against the fakes: every shortcut did its job, Ctrl+T toggled tracking, Ctrl+Shift+F
+  sent one autofocus to the camera, Ctrl+C was left alone.
 
 ## Switcher probe
 - `.\probe.ps1` (or CUEVIDEO_PROBE=1 on ChurchfrontVideo.exe), a port of the Mac's CUEVIDEO_PROBE: connects to
@@ -170,7 +179,8 @@ on real hardware and packaging.
   CUEVIDEO_VIEW=engineer:switcher opens a page, CUEVIDEO_CONFIG=<file> uses that setup file in full
   (cameras included, never written), CUEVIDEO_SCREENSHOT=<png> saves the window every 2 s (works with the
   screen locked, when nothing is drawn on screen), CUEVIDEO_PROBE=1 runs the switcher probe (CUEVIDEO_PROBE_OUT
-  for its folder). Self-tests don't write the window preferences.
+  for its folder), CUEVIDEO_KEYS="ctrl+shift+r;ctrl+t" presses shortcuts inside the app every 2 s (printed
+  to stdout), so nothing else on the desktop receives them. Self-tests don't write the window preferences.
 - Manual test without touching the booth's setup: `FakeDevices.exe 9932 --canon --picture <photo>`, a test
   config with a Canon on 127.0.0.1:8091 (atemInput 2), then the app with CUEVIDEO_CONFIG, CUEVIDEO_HOST=127.0.0.1,
   CUEVIDEO_PORT=9932. Buttons can be pressed with Windows UI Automation (InvokePattern) on a locked screen.

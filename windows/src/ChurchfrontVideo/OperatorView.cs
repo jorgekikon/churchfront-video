@@ -406,7 +406,7 @@ public sealed class OperatorView : LiveView
         var zoom = new ZoomRocker { Width = 44, Height = 170, IsEnabled = t != null, OnZoom = v => Ptz.Zoom(v) };
         var status = T.Text("", 11, FontWeights.SemiBold, T.Warning, wrap: true); status.Width = 150;
         var side = T.Column(8,
-            T.Small("Focus", () => Ptz.FocusOnce(), "One-shot autofocus on the camera on Next").With(b => { b.Width = 150; b.IsEnabled = t != null; }),
+            T.Small("Focus", () => Ptz.FocusOnce(), "One-shot autofocus on the camera on Next (Ctrl+Shift+F)").With(b => { b.Width = 150; b.IsEnabled = t != null; }),
             TrackControls(t),
             status);
         side.VerticalAlignment = VerticalAlignment.Center;
@@ -520,8 +520,8 @@ public sealed class OperatorView : LiveView
             btn.Background = s == null ? T.SurfaceRaised : T.Accent;
             btn.BorderBrush = s == null ? T.LineStrong : T.Accent;
             btn.ToolTip = t == null ? null
-                : s != null ? "Stop following (Esc stops every tracking camera). Moving the joystick or recalling a shot also stops it."
-                : can ? "Follow the person in the middle of the shot. Or click someone on the Next picture. Moving the joystick stops tracking."
+                : s != null ? "Stop following (Ctrl+T; Esc or Ctrl+. stops every tracking camera). Moving the joystick or recalling a shot also stops it."
+                : can ? "Follow the person in the middle of the shot (Ctrl+T). Or click someone on the Next picture. Moving the joystick stops tracking."
                 : Tracker.Detector == null ? Tracker.Unavailable ?? "Auto tracking isn't set up on this computer."
                 : "Auto tracking needs the camera's picture: a Canon camera's own, or an NDI picture set for its switcher input in Setup.";
             sizes.Visibility = speedRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
