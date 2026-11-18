@@ -12,8 +12,12 @@ using System.Windows.Media.Imaging;
 // ATEM on UDP <port> (9910), --cams: VISCA over IP cameras on UDP 52381-52383 that also answer
 // position and exposure inquiries, --canon: a Canon camera's HTTP interface on 127.0.0.1:8091
 // (open, claim, control, info and an MJPEG video.cgi). Prints every command received.
+//   --picture <photo>  the Canon looks at a virtual stage made from a photo with people in it,
+//                      and pans and tilts over it as told, for trying auto tracking.
 
 var port = args.FirstOrDefault(a => int.TryParse(a, out _)) is string p ? int.Parse(p) : 9910;
+var pi = Array.IndexOf(args, "--picture");
+if (pi >= 0 && pi + 1 < args.Length) FakeCanon.Stage = args[pi + 1];
 if (args.Contains("--cams")) FakeCams.Start();
 if (args.Contains("--canon")) FakeCanon.Start(8091);
 new Switcher(port).Run();
@@ -333,9 +337,66 @@ static class FakeCanon
         });
     }
 
+    /// <summary>--picture: a photo used as the stage. The camera sees a 40° window of a 60° wide
+    /// stage and really pans and tilts when told to (pan=left/right with pan.speed in hundredths
+    /// of a degree a second), so auto tracking can be tried in a closed loop.</summary>
+    public static string? Stage;
+    static double _vPan, _vTilt;          // degrees a second
+    static readonly object Move = new();
+
+    static void MakeStageFrames()
+    {
+        var src = new BitmapImage();
+        src.BeginInit(); src.UriSource = new Uri(Path.GetFullPath(Stage!)); src.CacheOption = BitmapCacheOption.OnLoad; src.EndInit();
+        // The photo is the middle of the stage; the rest is dark curtain.
+        const double stageDeg = 60, viewDeg = 40;
+        int sw = 1920, sh = 1080;
+        var dv0 = new DrawingVisual();
+        using (var dc = dv0.RenderOpen())
+        {
+            dc.DrawRectangle(new SolidColorBrush(Color.FromRgb(18, 18, 26)), null, new Rect(0, 0, sw, sh));
+            var pw = sw * viewDeg / stageDeg; var ph = pw * src.PixelHeight / src.PixelWidth;
+            dc.DrawImage(src, new Rect((sw - pw) / 2, (sh - ph) / 2, pw, ph));
+        }
+        var stage = new RenderTargetBitmap(sw, sh, 96, 96, PixelFormats.Pbgra32);
+        stage.Render(dv0);
+        stage.Freeze();
+        _zoom = (int)(viewDeg * 100);
+        var last = DateTime.UtcNow;
+        while (true)
+        {
+            var now = DateTime.UtcNow; var dt = (now - last).TotalSeconds; last = now;
+            double panDeg, tiltDeg;
+            lock (Move)
+            {
+                _pan = (int)Math.Clamp(_pan + _vPan * dt * 100, -1000, 1000);
+                _tilt = (int)Math.Clamp(_tilt + _vTilt * dt * 100, -560, 560);
+                panDeg = _pan / 100.0; tiltDeg = _tilt / 100.0;
+            }
+            double degPx = stageDeg / sw, vw = viewDeg / degPx, vh = vw * 9 / 16;
+            var cx = sw / 2 + panDeg / degPx; var cy = sh / 2 - tiltDeg / degPx;
+            var dv = new DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                dc.PushTransform(new ScaleTransform(960 / vw, 540 / vh));
+                dc.PushTransform(new TranslateTransform(-(cx - vw / 2), -(cy - vh / 2)));
+                dc.DrawImage(stage, new Rect(0, 0, sw, sh));
+            }
+            var bmp = new RenderTargetBitmap(960, 540, 96, 96, PixelFormats.Pbgra32);
+            bmp.Render(dv);
+            var enc = new JpegBitmapEncoder { QualityLevel = 80 };
+            enc.Frames.Add(BitmapFrame.Create(bmp));
+            using var ms = new MemoryStream();
+            enc.Save(ms);
+            _frame = ms.ToArray();
+            Thread.Sleep(40);
+        }
+    }
+
     /// <summary>A moving test picture, as JPEG, ten times a second.</summary>
     static void MakeFrames()
     {
+        if (Stage != null) { MakeStageFrames(); return; }
         var n = 0;
         while (true)
         {
@@ -359,6 +420,13 @@ static class FakeCanon
             n++;
             Thread.Sleep(100);
         }
+    }
+
+    /// <summary>Degrees a second from a drive command (speed in hundredths of a degree a second).</summary>
+    static double Speed(string dir, string? speed, string plus, string minus)
+    {
+        var v = int.TryParse(speed, out var s) ? s / 100.0 : 10;
+        return dir == plus ? v : dir == minus ? -v : 0;
     }
 
     static async Task Serve(TcpClient c)
@@ -405,8 +473,11 @@ static class FakeCanon
             else if (path.Contains("close.cgi")) body = "";
             else if (path.Contains("control.cgi"))
             {
-                if (q.TryGetValue("pan", out var p) && int.TryParse(p, out var pv)) _pan = pv;
-                if (q.TryGetValue("tilt", out var t) && int.TryParse(t, out var tv)) _tilt = tv;
+                lock (Move)
+                {
+                    if (q.TryGetValue("pan", out var p)) { if (int.TryParse(p, out var pv)) { _pan = pv; _vPan = 0; } else _vPan = Speed(p, q.GetValueOrDefault("pan.speed"), "right", "left"); }
+                    if (q.TryGetValue("tilt", out var t)) { if (int.TryParse(t, out var tv)) { _tilt = tv; _vTilt = 0; } else _vTilt = Speed(t, q.GetValueOrDefault("tilt.speed"), "up", "down"); }
+                }
                 if (q.TryGetValue("zoom", out var z) && int.TryParse(z, out var zv)) _zoom = zv;
                 if (q.TryGetValue("me.gain", out var g)) _gain = int.Parse(g);
                 if (q.TryGetValue("me.shutter", out var sh)) _shutter = int.Parse(sh);

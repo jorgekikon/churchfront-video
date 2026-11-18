@@ -8,8 +8,8 @@ namespace CueVideo;
 /// <summary>
 /// Everything a person can do in the app's window, as tools for Claude (through cuevideo-mcp
 /// and ControlServer). One place defines both the tool list and what each tool does. A port
-/// of ControlTools.swift: the same tools, names and arguments. Auto tracking, stage scan and
-/// NDI aren't on Windows yet, so those tools say so.
+/// of ControlTools.swift: the same tools, names and arguments. Stage scan and NDI aren't on
+/// Windows yet, so those tools say so.
 ///
 /// Sources can be named by input number or by any of their names. Cameras by name, IP address
 /// or switcher input; left out, a camera tool acts on the camera on Next. A camera on Live
@@ -26,7 +26,7 @@ public static class ControlTools
     public static Action<string>? ShowWindow;
 
     private const string NotYet = " Not available in the Windows version yet.";
-    private static readonly HashSet<string> NotOnWindows = new() { "list_ndi_sources", "start_tracking", "scan_stage", "label_stage_scan", "set_tracking_shot" };
+    private static readonly HashSet<string> NotOnWindows = new() { "list_ndi_sources", "scan_stage", "label_stage_scan" };
 
     // MARK: Tool list
 
@@ -92,20 +92,20 @@ public static class ControlTools
         Tool("run_route_button", "Press one of the volunteer routing buttons, by label.", P(("button", Str("The button's label."))), "button"),
         Tool("find_devices", "Find the switcher and cameras on this computer's network, for first-time setup: ATEM switchers (they answer on UDP 9910), Canon PTZ cameras (their HTTP control page), and everything announcing itself over mDNS/Bonjour (NDI sources, which include most PTZOptics and BirdDog cameras, Blackmagic devices, device web pages), each with its IP address. Takes about 4 seconds and changes nothing. Then confirm with the person which is which and save it with update_config (atemHost, cameras with name, host, proto and atemInput)."),
         Tool("list_ndi_sources", "The NDI sources on the network now, by their exact names, for the ndi field of a volunteer source or key button."),
-        Tool("start_tracking", "Auto tracking: make a camera follow a person, by watching its preview picture.",
-            P(("camera", CameraP()), ("shot", Choice("Follow shot size.", "shoulders", "waist", "full")), ("x", Num("0 (left) to 1 (right) across the picture.")), ("y", Num("0 (top) to 1 (bottom) down the picture.")), ("person", Str("A name given in the last stage scan.")), ("allow_live", AllowLive()))),
+        Tool("start_tracking", "Auto tracking: make a camera follow a person, by watching its preview picture (on Windows, a Canon camera's own; NDI pictures aren't on Windows yet). It frames them as a broadcast follow shot: shoulders up, waist up or full length (the shot the camera is closest to unless shot is given), eyes near the upper third, lead room on the side they face or walk toward, eased pan and tilt, and slow zooms to hold the size. Picks the person nearest the middle, or nearest x/y if given (0 to 1 across and down the picture). It keeps to that person by the colours of their clothes, so it stays with them when people cross and waits for them after losing sight. Waits up to 4 seconds for someone to be found. Any manual pan, tilt, shot or preset stops tracking; a manual zoom keeps it and holds the new size. (Following by name needs the stage scan, which isn't on Windows yet.)",
+            P(("camera", CameraP()), ("shot", Choice("Follow shot size.", "shoulders", "waist", "full")), ("x", Num("0 (left) to 1 (right) across the picture.")), ("y", Num("0 (top) to 1 (bottom) down the picture.")), ("person", Str("A name given in the last stage scan (not on Windows yet).")), ("allow_live", AllowLive()))),
         Tool("scan_stage", "Stage scan: find the people on stage from each camera's wide shot and propose a shot for each.",
             P(("cameras", AnyList("Cameras to scan. Leave out for all.")), ("shot", Choice("How to frame each person. Default waist.", "shoulders", "waist", "full")), ("pictures", Bool("Include each person's picture (default true).")))),
         Tool("label_stage_scan", "Name the people from the last scan_stage and save a shot per labelled person.",
             P(("labels", new JsonObject { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "object", ["properties"] = P(("person", Any("A person's number, or a letter.")), ("label", Str("A name or role."))) }, ["description"] = "Who is who." })), "labels"),
-        Tool("get_framing", "The follow-shot framing rules auto tracking uses for each shot size (shoulders, waist, full), the built-in standard and any changes, plus the tracking response settings. (Auto tracking itself isn't on Windows yet; these settings are kept in the config file for the Mac.)"),
-        Tool("set_framing", "Change how a follow shot is framed. All measured as a share of the frame. eye_line: where the eyes sit, down from the top. size: eyes-to-shoulders drop against frame height (bigger = tighter). lead_room: offset toward where they face or walk. dead_x / dead_y: how far they can drift before the camera moves. reset: true returns this size to the standard. (Saved to the config file; auto tracking itself isn't on Windows yet.)",
+        Tool("get_framing", "The follow-shot framing rules auto tracking uses for each shot size (shoulders, waist, full), the built-in standard and any changes, plus the tracking response settings. Use with camera_snapshots to judge framing."),
+        Tool("set_framing", "Change how a follow shot is framed, live, while Churchfront Video runs: takes effect on tracking cameras within a frame. All measured as a share of the frame. eye_line: where the eyes sit, down from the top (less = less headroom). size: eyes-to-shoulders drop against frame height (bigger = tighter). lead_room: offset toward where they face or walk. dead_x / dead_y: how far they can drift before the camera moves. reset: true returns this size to the standard.",
             P(("shot", Choice("Shot size.", "shoulders", "waist", "full")), ("eye_line", Num("0.1 to 0.5.")), ("size", Num("Shoulders about 0.36, waist 0.21, full 0.095.")),
               ("lead_room", Num("0 to 0.2.")), ("dead_x", Num("0.02 to 0.2.")), ("dead_y", Num("0.02 to 0.2.")), ("reset", Bool("Back to the standard."))), "shot"),
-        Tool("set_tracking_tuning", "Change how auto tracking responds. correction (1.2), latency (0.45), walk_threshold (0.12), zoom_threshold (0.3), zoom_wait (1.5), speed 0.5 to 4. reset: true returns all to defaults. (Saved to the config file; auto tracking itself isn't on Windows yet.)",
+        Tool("set_tracking_tuning", "Change how auto tracking responds, live. correction: pull toward the mark (default 1.2; higher reacts harder, too high wobbles). latency: seconds the preview runs behind (0.45). walk_threshold: speed in frames a second that counts as walking (0.12; higher ignores more small moves). zoom_threshold: how wrong the shot size must look before zooming (0.3, about a third). zoom_wait: seconds it must stay wrong first (1.5). speed: overall follow speed 0.5 to 4. reset: true returns all to defaults.",
             P(("correction", Num("0.4 to 2.5.")), ("latency", Num("0.2 to 0.8.")), ("walk_threshold", Num("0.05 to 0.4.")), ("zoom_threshold", Num("0.1 to 0.8.")),
               ("zoom_wait", Num("0.5 to 5.")), ("speed", Num("0.5 to 4.")), ("reset", Bool("Back to defaults.")))),
-        Tool("set_tracking_shot", "Reframe a tracking camera as a different follow shot.",
+        Tool("set_tracking_shot", "Reframe a tracking camera as a different follow shot: shoulders up, waist up or full length.",
             P(("camera", CameraP()), ("shot", Choice("Follow shot size.", "shoulders", "waist", "full")), ("allow_live", AllowLive())), "shot"),
         Tool("stop_tracking", "Stop auto tracking on a camera, or on every camera with all: true.", P(("camera", CameraP()), ("all", Bool("Stop every camera.")))),
         Tool("camera_home", "Send a camera to its home position (pan and tilt 0).", P(("camera", CameraP()), ("allow_live", AllowLive()))),
@@ -251,7 +251,32 @@ public static class ControlTools
                 break;
             }
             case "camera_stop":
-            { var c = Cam(a, changing: false); Ptz.StopDrive(c.Id); Ptz.Zoom(0, c.Id); done(Ok($"Stopped {c.Name}")); break; }
+            { var c = Cam(a, changing: false); AutoTracker.Shared.Stop(c.Id); Ptz.StopDrive(c.Id); Ptz.Zoom(0, c.Id); done(Ok($"Stopped {c.Name}")); break; }
+            case "start_tracking":
+            {
+                var c = Cam(a, changing: true);
+                PointD? pt = a["x"] == null && a["y"] == null ? null : new PointD(CueJson.Double(a["x"]) ?? 0.5, CueJson.Double(a["y"]) ?? 0.5);
+                var size = ShotSizes.Parse(CueJson.Str(a["shot"]));
+                var person = CueJson.Str(a["person"]) is string pn && pn.Trim().Length > 0 ? pn.Trim() : null;
+                AutoTracker.Shared.Start(c, pt, size, person, why =>
+                {
+                    if (why == null)
+                    {
+                        var t = AutoTracker.Shared.Sessions.TryGetValue(c.Id, out var ts) ? ts : null;
+                        done(Ok($"{c.Name} is following {t?.Person ?? "someone"}, framed {t?.Size.Name().ToLowerInvariant()}", Warn(c)));
+                    }
+                    else done(new JsonObject { ["error"] = AutoTracker.Shared.IsTracking(c.Id) ? $"{c.Name}: {why} It keeps looking until stop_tracking." : $"{c.Name}: {why}" });
+                });
+                break;
+            }
+            case "set_tracking_shot":
+            {
+                var z = ShotSizes.Parse(CueJson.Str(a["shot"])) ?? throw Fail("shot is shoulders, waist or full.");
+                var c = Cam(a, changing: true);
+                if (!AutoTracker.Shared.IsTracking(c.Id)) throw Fail($"{c.Name} isn't tracking. Use start_tracking.");
+                AutoTracker.Shared.SetSize(c.Id, z); done(Ok($"{c.Name} framing {z.Name().ToLowerInvariant()}"));
+                break;
+            }
             case "camera_focus":
             {
                 var c = Cam(a, changing: true);
@@ -330,6 +355,8 @@ public static class ControlTools
                     if (Clamp(a["dead_y"], 0.02, 0.2) is double dy) r.DeadY = dy;
                     if (r.IsEmpty) c.Framing.Remove(z.Key()); else c.Framing[z.Key()] = r;
                 });
+                // Tracking cameras on this size reframe to it now.
+                foreach (var (id, t) in AutoTracker.Shared.Sessions.ToList()) if (t.Size == z && t.Asked != null) AutoTracker.Shared.SetSize(id, z);
                 done(Ok($"{z.Name()} framing updated", FramingReport()));
                 break;
             }
@@ -350,8 +377,12 @@ public static class ControlTools
                 break;
             }
             case "stop_tracking":
-                done(Ok("Nothing is tracking: auto tracking isn't in the Windows version yet."));
+            {
+                if (CueJson.Bool(a["all"]) == true) { AutoTracker.Shared.StopAll(); done(Ok("Stopped tracking on every camera")); break; }
+                var c = Cam(a, changing: false);
+                AutoTracker.Shared.Stop(c.Id); done(Ok($"{c.Name} stopped tracking"));
                 break;
+            }
             case "camera_home": { var c = Cam(a, changing: true); Ptz.Home(c.Id); done(Ok($"{c.Name} going home")); break; }
             case "set_exposure":
             {
@@ -690,7 +721,6 @@ public static class ControlTools
                 ["correction"] = t.Correction ?? 1.2, ["latency"] = t.Latency ?? 0.45, ["walk_threshold"] = t.WalkThreshold ?? 0.12,
                 ["zoom_threshold"] = t.ZoomThreshold ?? 0.3, ["zoom_wait"] = t.ZoomWait ?? 1.5,
             },
-            ["note"] = "Auto tracking isn't in the Windows version yet; these settings are kept for the Mac.",
         };
     }
 
@@ -779,7 +809,7 @@ public static class ControlTools
                 ["name"] = c.Name, ["host"] = c.Host, ["protocol"] = c.Proto.Key(), ["atem_input"] = c.AtemInput,
                 ["answering"] = Ptz.Online.Contains(c.Id), ["has_control"] = Ptz.HasControl(c), ["model"] = Ptz.Models.TryGetValue(c.Id, out var md) ? md : "",
                 ["on_live"] = c.AtemInput is int li && s.OnLive(li), ["on_next"] = c.AtemInput is int ni && s.OnNext(ni),
-                ["shots"] = shots, ["camera_presets"] = presets, ["tracking"] = false,
+                ["shots"] = shots, ["camera_presets"] = presets, ["tracking"] = AutoTracker.Shared.Report(c.Id),
             };
             if (x != null)
             {
@@ -812,7 +842,8 @@ public static class ControlTools
             ["cameras"] = cams,
             ["stage_scan_names"] = new JsonArray(),
             ["platform"] = "windows",
-            ["not_on_windows_yet"] = new JsonArray("NDI previews", "auto tracking", "stage scan"),
+            ["not_on_windows_yet"] = new JsonArray("NDI previews", "stage scan (and following by name)", "auto tracking on cameras other than Canon (it needs the NDI picture)"),
+            ["auto_tracking"] = AutoTracker.Shared.Detector != null ? "ready" : AutoTracker.Shared.Unavailable ?? "not set up",
             ["config_file"] = Store.FilePath,
         };
     }

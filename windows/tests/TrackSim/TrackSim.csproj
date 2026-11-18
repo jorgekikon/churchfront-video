@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Auto tracking in a closed loop: the real pose model and tracker steering FakeDevices' Canon
+       over a virtual stage made from a photo. Usage: dotnet run, then the path of a photo with a person in it -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <InvariantGlobalization>false</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\ChurchfrontVideo\ChurchfrontVideo.csproj" />
+  </ItemGroup>
+</Project>

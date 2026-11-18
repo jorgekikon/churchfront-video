@@ -37,7 +37,8 @@ var root = AppContext.BaseDirectory;
 var fake = Path.GetFullPath(Path.Combine(root, "..", "..", "..", "..", "..", "tools", "FakeDevices", "bin", "Debug", "net8.0-windows", "FakeDevices.exe"));
 if (!File.Exists(fake)) { Console.WriteLine($"Build tools/FakeDevices first ({fake} is missing)."); return 2; }
 var proc = Process.Start(new ProcessStartInfo(fake, "9920 --cams --canon") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true })!;
-proc.OutputDataReceived += (_, e) => { if (Environment.GetEnvironmentVariable("SMOKE_VERBOSE") != null) Console.WriteLine("    " + e.Data); };
+var fakeLog = new System.Collections.Concurrent.ConcurrentQueue<string>();
+proc.OutputDataReceived += (_, e) => { if (e.Data != null) fakeLog.Enqueue(e.Data); if (Environment.GetEnvironmentVariable("SMOKE_VERBOSE") != null) Console.WriteLine("    " + e.Data); };
 proc.BeginOutputReadLine();
 Thread.Sleep(700);
 
@@ -159,8 +160,39 @@ try
     Check(r["error"] != null, "an unknown key button is refused");
     r = Tool("set_recording", new JsonObject());
     Check(r["error"]?.ToString().Contains("Nothing was changed") == true, "set_recording without on changes nothing");
-    r = Tool("start_tracking");
-    Check(r["error"]?.ToString().Contains("Windows") == true, "tracking says it isn't on Windows yet");
+    // MARK: Auto tracking (the pose model itself is tried by tests/TrackSim)
+    var redBlue = Appearance.Solid(200, 30, 30, 30, 30, 160);
+    var greenGrey = Appearance.Solid(30, 160, 40, 128, 128, 128);
+    Check(redBlue.Distance(Appearance.Solid(190, 35, 25, 35, 30, 150)) < 0.3 && redBlue.Distance(greenGrey) > 0.8, "the same clothes look alike, different ones don't");
+    var crossing = IdentityMatch.Choose(new() { new(0.05, 0.9), new(0.08, 0.2) }, 0.3, 0.1, new(0.2, 0.9));
+    Check(crossing.Take == 1 && crossing.Sure, "when people cross, it keeps the one who looks like them, not the nearest");
+    var stranger = IdentityMatch.Choose(new() { new(0.1, 1.0) }, 0.4, 2, new(0.2, 0.9));
+    Check(stranger.Take == null, "after losing sight, it won't take up someone who looks different");
+    // A waist-up shot: eyes 0.29 down, shoulders 0.21 below them, hips out of shot.
+    var pts = new (double X, double Y, double C)[17];
+    void Pt(int i, double x, double y) => pts[i] = (x, y, 0.9);
+    Pt(0, 0.70, 0.31); Pt(1, 0.69, 0.29); Pt(2, 0.71, 0.29); Pt(3, 0.66, 0.30); Pt(4, 0.74, 0.30); Pt(5, 0.62, 0.50); Pt(6, 0.78, 0.50);
+    var people = TrackedPerson.From(new() { new PoseBody { Box = new(0.55, 0.15, 0.3, 0.85), Score = 0.9, Points = pts } }, null);
+    Check(people.Count == 1 && people[0].Size == ShotSize.Waist && Math.Abs(people[0].Eye.X - 0.70) < 0.01, "reads a waist-up shot from the body points");
+
+    // Claude's tools drive a tracking camera, with a stand-in for the picture and the model.
+    r = Tool("start_tracking", new JsonObject { ["camera"] = "Canon", ["allow_live"] = true });
+    Check(r["error"]?.ToString().Contains("set up") == true || r["error"]?.ToString().Contains("starting") == true, "without the model, tracking says why");
+    var stand = new StandIn(pts);
+    OnMain(() => { AutoTracker.Shared.Detector = stand; AutoTracker.Shared.Pictures = stand; AutoTracker.Shared.Attach(); return 0; });
+    fakeLog.Clear();
+    r = Tool("start_tracking", new JsonObject { ["camera"] = "Canon", ["allow_live"] = true });
+    Check(r["done"]?.ToString().Contains("waist") == true, "start_tracking finds the person and keeps the waist-up shot");
+    Check(Wait(() => fakeLog.Any(l => l.Contains("pan=right"))), "a person right of the mark turns the camera right");
+    Check(Tool("get_status")["cameras"]?[1]?["tracking"]?["state"]?.ToString() == "following", "get_status shows it following");
+    r = Tool("set_tracking_shot", new JsonObject { ["camera"] = "Canon", ["shot"] = "shoulders", ["allow_live"] = true });
+    Check(r["ok"] != null && OnMain(() => AutoTracker.Shared.Sessions[canon.Id].Size) == ShotSize.Shoulders, "set_tracking_shot reframes");
+    OnMain(() => { ptz.Drive(0.5, 0, canon.Id); ptz.StopDrive(canon.Id); return 0; });
+    Check(Wait(() => !AutoTracker.Shared.IsTracking(canon.Id)), "moving the camera by hand stops tracking");
+    Tool("start_tracking", new JsonObject { ["camera"] = "Canon", ["allow_live"] = true });
+    fakeLog.Clear();
+    r = Tool("stop_tracking", new JsonObject { ["all"] = true });
+    Check(r["ok"] != null && Wait(() => fakeLog.Any(l => l.Contains("pan=stop"))), "stop_tracking stops the camera");
     r = Tool("set_framing", new JsonObject { ["shot"] = "waist", ["eye_line"] = 0.9 });
     Check(r["framing"]?["waist"]?["now"]?["eye_line"]?.GetValue<double>() == 0.5, "set_framing keeps values in range");
     r = Tool("camera_snapshots", new JsonObject { ["cameras"] = new JsonArray("Canon"), ["pictures"] = false });
@@ -189,3 +221,19 @@ finally
 }
 Console.WriteLine(failures == 0 ? "\nAll passed." : $"\n{failures} failed.");
 return failures == 0 ? 0 : 1;
+
+/// <summary>Stands in for the camera picture (a blank frame ten times a second) and the pose
+/// model (the same person every frame), so the tracker can be tried without either.</summary>
+sealed class StandIn : IPersonDetector, ITrackPictures
+{
+    private readonly (double X, double Y, double C)[] _pts;
+    public StandIn((double, double, double)[] pts) { _pts = pts; }
+    public List<PoseBody> Detect(TrackFrame f) => new() { new PoseBody { Box = new(0.55, 0.15, 0.3, 0.85), Score = 0.9, Points = _pts } };
+    public bool Has(PTZCamera c) => c.Proto == VISCAProtocol.CanonXC;
+    public Action Watch(PTZCamera c, Action<TrackFrame> frame)
+    {
+        var f = new TrackFrame { Width = 64, Height = 36, Bgr = new byte[64 * 36 * 3] };
+        var t = new Timer(_ => frame(f), null, 0, 100);
+        return () => t.Dispose();
+    }
+}

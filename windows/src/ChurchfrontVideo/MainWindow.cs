@@ -68,6 +68,7 @@ public sealed class MainWindow : Window
         B.Store.Changed += () => _dirty = true;
         B.Changed += () => _dirty = true;
         CanonFeedHub.FrameArrived += () => _dirty = true;
+        AutoTracker.Shared.Changed += () => _dirty = true;
         var timer = new DispatcherTimer(DispatcherPriority.Render) { Interval = TimeSpan.FromMilliseconds(33) };
         timer.Tick += (_, _) =>
         {
@@ -155,6 +156,8 @@ public sealed class MainWindow : Window
         if (e.IsRepeat) return key is System.Windows.Input.Key.Space or System.Windows.Input.Key.Enter;
         switch (key)
         {
+            // Escape stops every tracking camera (the Mac's Command-period).
+            case System.Windows.Input.Key.Escape when AutoTracker.Shared.Sessions.Count > 0: AutoTracker.Shared.StopAll(); return true;
             case System.Windows.Input.Key.Space: B.Atem.Cut(B.Me); return true;
             case System.Windows.Input.Key.Enter: B.Atem.Auto(B.Me); return true;
         }

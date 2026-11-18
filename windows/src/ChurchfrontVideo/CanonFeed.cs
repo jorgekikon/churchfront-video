@@ -26,6 +26,12 @@ public sealed class CanonFeed
 
     public CanonFeed(string host, ushort port) { Host = host; Port = port; }
 
+    private Action<TrackFrame>[] _trackers = Array.Empty<Action<TrackFrame>>();
+    private readonly object _trackLock = new();
+    /// <summary>Auto tracking: also hand each frame over as pixels (called on the decoding thread).</summary>
+    public void AddTracker(Action<TrackFrame> f) { lock (_trackLock) _trackers = _trackers.Append(f).ToArray(); }
+    public void RemoveTracker(Action<TrackFrame> f) { lock (_trackLock) _trackers = _trackers.Where(x => x != f).ToArray(); }
+
     private string Url => $"http://{Host}{(Port == 80 ? "" : ":" + Port)}/-wvhttp-01-/video.cgi";
 
     public void Start()
@@ -114,6 +120,17 @@ public sealed class CanonFeed
             bmp.EndInit();
             bmp.Freeze();
             MainThread.Post(() => { Image = bmp; IsLive = true; CanonFeedHub.FrameArrived?.Invoke(); });
+            // Auto tracking gets the same frame as plain pixels.
+            var trackers = _trackers;
+            if (trackers.Length > 0)
+            {
+                var bgr = new FormatConvertedBitmap(bmp, PixelFormats.Bgr24, null, 0);
+                int w = bgr.PixelWidth, h = bgr.PixelHeight;
+                var px = new byte[w * h * 3];
+                bgr.CopyPixels(px, w * 3, 0);
+                var f = new TrackFrame { Width = w, Height = h, Bgr = px };
+                foreach (var t in trackers) { try { t(f); } catch { } }
+            }
         }
         catch { }
         finally { Interlocked.Exchange(ref _decoding, 0); }

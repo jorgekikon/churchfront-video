@@ -14,5 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\CueVideo.Core\CueVideo.Core.csproj" />
     <Resource Include="AppIcon.ico" />
+    <!-- Auto tracking: runs the body-pose model on the graphics chip (DirectML), or the processor. -->
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.20.1" />
   </ItemGroup>
 </Project>

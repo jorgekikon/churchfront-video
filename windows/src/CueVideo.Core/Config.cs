@@ -67,7 +67,7 @@ public sealed class ScreenOutput
     [JsonIgnore] public bool ForVolunteers => Volunteer ?? true;
 }
 
-/// <summary>How a follow shot is framed (auto tracking, not on Windows yet). Kept so the file round-trips.</summary>
+/// <summary>How a follow shot is framed by auto tracking: changes to the standard for one size.</summary>
 public sealed class FramingRule
 {
     public double? EyeLine { get; set; }
@@ -107,7 +107,7 @@ public sealed class RouteButton
     public void Run(ATEMClient atem) { foreach (var c in Set) atem.SetAux(c.Aux - 1, c.Source); }
 }
 
-/// <summary>The follow-shot sizes, for the framing tools (tracking itself isn't on Windows yet).</summary>
+/// <summary>The three follow shots auto tracking frames (see Tracker.cs).</summary>
 public enum ShotSize { Shoulders, Waist, Full }
 
 public static class ShotSizes
@@ -192,6 +192,7 @@ public sealed class ConfigStore
     /// <summary>Self-tests (any CUEVIDEO_ environment setting) bring their own switcher and
     /// cameras; they must never be written over the real setup.</summary>
     public bool ReadOnly { get; }
+    private bool OwnFile { get; }
     private DateTime? _lastModified;
     private bool _unreadable;
     private string LastGoodPath => Path.Combine(Path.GetDirectoryName(FilePath)!, "config.last-good.json");
@@ -201,7 +202,9 @@ public sealed class ConfigStore
 
     public ConfigStore(string? path = null, bool? readOnly = null)
     {
-        FilePath = path ?? Path.Combine(Folder, "config.json");
+        // CUEVIDEO_CONFIG: a self-test's own setup file (its cameras are used; it's never written).
+        OwnFile = path == null && Environment.GetEnvironmentVariable("CUEVIDEO_CONFIG") is string own && own.Length > 0;
+        FilePath = path ?? (OwnFile ? Environment.GetEnvironmentVariable("CUEVIDEO_CONFIG")! : Path.Combine(Folder, "config.json"));
         ReadOnly = readOnly ?? Environment.GetEnvironmentVariables().Keys.Cast<string>().Any(k => k.StartsWith("CUEVIDEO_", StringComparison.Ordinal));
     }
 
@@ -340,8 +343,9 @@ public sealed class ConfigStore
         b.Ptz.ManualSpeed = Config.PtzSpeed;
         var me = Math.Max(0, Config.Me - 1);
         if (b.Me != me) b.Me = me;
-        if (ReadOnly) return;
-        if (b.Atem.Host != Config.AtemHost.Trim()) b.Atem.Connect(Config.AtemHost);
+        // A self-test leaves the switcher and cameras it brought alone, unless it named its own setup file.
+        if (ReadOnly && !OwnFile) return;
+        if (b.Atem.Host != Config.AtemHost.Trim() && !(ReadOnly && Config.AtemHost.Trim().Length == 0)) b.Atem.Connect(Config.AtemHost);
         if (PTZController.Signature(b.Ptz.Cameras) != PTZController.Signature(Config.Cameras))
         {
             _applying = true;

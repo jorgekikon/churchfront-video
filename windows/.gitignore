@@ -3,3 +3,5 @@ obj/
 dist/
 *.user
 .vs/
+# Auto tracking model: fetched by get-model.ps1, never committed (see get-model.ps1)
+models/

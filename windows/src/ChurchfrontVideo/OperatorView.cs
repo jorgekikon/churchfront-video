@@ -130,7 +130,33 @@ public sealed class OperatorView : LiveView
         var keys = new TextBlock { FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = T.Ink, Margin = new Thickness(12), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
         var progress = new Border { Height = 5, Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom };
         var inner = new Grid { Background = Brushes.Black, ClipToBounds = true };
-        inner.Children.Add(name); inner.Children.Add(img); inner.Children.Add(badge); inner.Children.Add(keys); inner.Children.Add(progress);
+        // Auto tracking: the person being followed is outlined; a badge says what it's doing and stops it.
+        var outline = new System.Windows.Shapes.Rectangle { StrokeThickness = 4, RadiusX = 8, RadiusY = 8, IsHitTestVisible = false, Visibility = Visibility.Collapsed };
+        var overlay = new Canvas { IsHitTestVisible = false };
+        overlay.Children.Add(outline);
+        var trackWords = T.Text("", 22, FontWeights.Bold, T.OnAction);
+        var trackBadge = T.Button(T.Row(10, T.Text("🚶", 20, null, T.OnAction), trackWords, T.Text("✕", 18, FontWeights.Bold, T.OnAction)), null, T.Accent, T.Transparent, double.NaN, 48, 24, new Thickness(16, 0, 16, 0), "Stop auto tracking");
+        trackBadge.Visibility = Visibility.Collapsed;
+        var topRight = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 22, 22, 0) };
+        topRight.Children.Add(trackBadge);
+        keys.Margin = new Thickness(0, 8, 0, 0); keys.HorizontalAlignment = HorizontalAlignment.Right;
+        inner.Children.Add(name); inner.Children.Add(img); inner.Children.Add(overlay); inner.Children.Add(badge); inner.Children.Add(topRight); inner.Children.Add(progress);
+        // Clicking a person on Next follows them. On Live, a click only switches who an
+        // already-tracking camera follows, so a stray click can't start moving the live shot.
+        PTZCamera? Pickable()
+        {
+            var cam = PicturedOn(input());
+            if (cam == null || img.Source == null || !Tracker.CanTrack(cam)) return null;
+            return title == "NEXT" || Tracker.IsTracking(cam.Id) ? cam : null;
+        }
+        inner.MouseLeftButtonDown += (_, e) =>
+        {
+            if (Pickable() is not PTZCamera cam) return;
+            var p = e.GetPosition(img);
+            if (img.ActualWidth <= 0 || p.X < 0 || p.Y < 0 || p.X > img.ActualWidth || p.Y > img.ActualHeight) return;
+            Start(cam, new PointD(p.X / img.ActualWidth, p.Y / img.ActualHeight));
+            e.Handled = true;
+        };
         var box = new Border
         {
             BorderBrush = color, BorderThickness = new Thickness(3), CornerRadius = new CornerRadius(10), Child = inner, Background = Brushes.Black,
@@ -139,7 +165,7 @@ public sealed class OperatorView : LiveView
         name.FontSize = 72;
         badge.Child = T.Text(T.Spaced(title), 26, FontWeights.Bold, title == "LIVE" ? Brushes.White : T.OnAction);
         badge.Padding = new Thickness(18, 6, 18, 6); badge.Margin = new Thickness(22);
-        keys.FontSize = 24; keys.Margin = new Thickness(22);
+        keys.FontSize = 24; topRight.Children.Add(keys);
         progress.Height = 10;
         Live(() =>
         {
@@ -154,7 +180,31 @@ public sealed class OperatorView : LiveView
             keys.Text = on.Count > 0 ? "+ " + string.Join(", ", on) : "";
             var fading = title == "LIVE" && S.Get(S.InTransition, B.Me);
             progress.Width = fading ? 1268 * Math.Clamp(S.Position.TryGetValue(B.Me, out var p) ? p : 0, 0, 1) : 0;
+
+            var ts = cam != null && Tracker.Sessions.TryGetValue(cam.Id, out var x) ? x : null;
+            trackBadge.Visibility = ts != null ? Visibility.Visible : Visibility.Collapsed;
+            if (ts != null)
+            {
+                var following = ts.Phase == AutoTracker.Phase.Following;
+                trackWords.Text = T.Spaced((AutoTracker.Words(ts.Phase) ?? "").ToUpperInvariant());
+                trackBadge.Background = following ? T.Accent : T.Warning;
+                trackBadge.Tag = cam!.Id;
+            }
+            if (ts?.Target is TrackedPerson tp && pic != null && img.ActualWidth > 0)
+            {
+                var o = img.TranslatePoint(new Point(0, 0), inner);
+                outline.Visibility = Visibility.Visible;
+                outline.Stroke = ts.Phase == AutoTracker.Phase.Following ? T.Accent : T.Warning;
+                outline.StrokeDashArray = ts.Phase == AutoTracker.Phase.Following ? null : new DoubleCollection { 3, 2 };
+                Canvas.SetLeft(outline, o.X + tp.Box.X * img.ActualWidth);
+                Canvas.SetTop(outline, o.Y + tp.Box.Y * img.ActualHeight);
+                outline.Width = Math.Max(4, tp.Box.W * img.ActualWidth);
+                outline.Height = Math.Max(4, tp.Box.H * img.ActualHeight);
+            }
+            else outline.Visibility = Visibility.Collapsed;
+            inner.Cursor = Pickable() != null ? System.Windows.Input.Cursors.Cross : null;
         });
+        trackBadge.Click += (_, _) => { if (trackBadge.Tag is Guid id) Tracker.Stop(id); };
         return outer;
     }
 
@@ -350,7 +400,7 @@ public sealed class OperatorView : LiveView
         var status = T.Text("", 11, FontWeights.SemiBold, T.Warning, wrap: true); status.Width = 150;
         var side = T.Column(8,
             T.Small("Focus", () => Ptz.FocusOnce(), "One-shot autofocus on the camera on Next").With(b => { b.Width = 150; b.IsEnabled = t != null; }),
-            T.Small("Track", () => Dialogs.Info("Not on Windows yet", "Auto tracking isn't in the Windows version of Churchfront Video yet."), "Auto tracking (not on Windows yet)").With(b => { b.Width = 150; b.IsEnabled = t != null; b.Opacity = 0.5; }),
+            TrackControls(t),
             status);
         side.VerticalAlignment = VerticalAlignment.Center;
         Live(() =>
@@ -385,6 +435,101 @@ public sealed class OperatorView : LiveView
         }
         Ptz.Selected = t.Id;
         return col;
+    }
+
+    // MARK: Tracking
+
+    private static AutoTracker Tracker => AutoTracker.Shared;
+    /// <summary>Why the last start found no one, shown under the button until the next try.</summary>
+    private string? _trackProblem;
+
+    /// <summary>Turns auto tracking on and off for the camera on Next. On, it follows the person
+    /// nearest the middle; clicking someone on the Next picture follows them instead.</summary>
+    private FrameworkElement TrackControls(PTZCamera? t)
+    {
+        var col = new StackPanel { Width = 150 };
+        var walk = T.Text("🚶", 12);
+        var label = T.Text("Track", 12, FontWeights.SemiBold);
+        var btn = T.Button(T.Row(6, walk, label), () =>
+        {
+            if (t == null) return;
+            _trackProblem = null;
+            if (Tracker.IsTracking(t.Id)) { Tracker.Stop(t.Id); return; }
+            Start(t, null);
+        }, T.SurfaceRaised, T.LineStrong, 150, 30, 6);
+        btn.IsEnabled = t != null;
+        col.Children.Add(btn);
+
+        // The follow shot: tap to reframe. The lit one is what it's framing to.
+        var sizes = new UniformGrid { Columns = 3, Margin = new Thickness(0, 4, 0, 0) };
+        var sizeButtons = new List<(ShotSize Z, Button B, TextBlock L)>();
+        foreach (var z in ShotSizes.All)
+        {
+            var size = z;
+            var l = T.Text(z.Short(), 11, FontWeights.SemiBold);
+            var b = T.Button(l, () => { if (t != null) Tracker.SetSize(t.Id, size); }, T.SurfaceSunken, T.Transparent, double.NaN, 24, 5, new Thickness(2), $"Frame {z.Name().ToLowerInvariant()}");
+            b.Margin = new Thickness(1, 0, 1, 0);
+            sizes.Children.Add(b);
+            sizeButtons.Add((z, b, l));
+        }
+        col.Children.Add(sizes);
+
+        // Follow speed, right here so it can be nudged during a service.
+        var speedVal = T.Text("", 11, null, T.Ink); speedVal.FontFamily = T.Mono; speedVal.Width = 36; speedVal.TextAlignment = TextAlignment.Center;
+        Button Step(string s, double d) => T.Button(T.Text(s, 11, FontWeights.Bold), () =>
+            Store.Update(c => c.TrackSpeed = Math.Min(4, Math.Max(0.5, Math.Round((c.TrackSpeed + d) * 4) / 4))), T.SurfaceSunken, T.Transparent, 24, 20, 4, new Thickness(0));
+        var speedRow = new DockPanel { Margin = new Thickness(0, 4, 0, 0), ToolTip = "How quickly tracking cameras follow. Raise it if the camera falls behind, lower it if it overshoots." };
+        var plus = Step("+", 0.25); DockPanel.SetDock(plus, Dock.Right);
+        var val = speedVal; DockPanel.SetDock(val, Dock.Right);
+        var minus = Step("−", -0.25); DockPanel.SetDock(minus, Dock.Right);
+        speedRow.Children.Add(plus); speedRow.Children.Add(val); speedRow.Children.Add(minus);
+        speedRow.Children.Add(T.Text("Speed", 11, null, T.InkMuted).With(x => x.VerticalAlignment = VerticalAlignment.Center));
+        col.Children.Add(speedRow);
+
+        var info = T.Text("", 11, FontWeights.SemiBold, T.InkSubtle, wrap: true);
+        info.Margin = new Thickness(0, 4, 0, 0);
+        col.Children.Add(info);
+
+        Live(() =>
+        {
+            var s = t != null && Tracker.Sessions.TryGetValue(t.Id, out var x) ? x : null;
+            var can = t != null && Tracker.CanTrack(t);
+            btn.IsEnabled = can || s != null;
+            btn.Opacity = btn.IsEnabled ? 1 : 0.5;
+            label.Text = s == null ? "Track" : "Tracking";
+            label.Foreground = walk.Foreground = s == null ? T.Ink : T.OnAction;
+            btn.Background = s == null ? T.SurfaceRaised : T.Accent;
+            btn.BorderBrush = s == null ? T.LineStrong : T.Accent;
+            btn.ToolTip = t == null ? null
+                : s != null ? "Stop following (Esc stops every tracking camera). Moving the joystick or recalling a shot also stops it."
+                : can ? "Follow the person in the middle of the shot. Or click someone on the Next picture. Moving the joystick stops tracking."
+                : Tracker.Detector == null ? Tracker.Unavailable ?? "Auto tracking isn't set up on this computer."
+                : "Auto tracking needs the camera's own picture: on Windows, that's a Canon camera.";
+            sizes.Visibility = speedRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var (z, b, l) in sizeButtons)
+            {
+                var on = s?.Size == z;
+                b.Background = on ? T.Accent : T.SurfaceSunken;
+                l.Foreground = on ? T.OnAction : T.InkMuted;
+            }
+            speedVal.Text = Store.Config.TrackSpeed.ToString("0.##", CultureInfo.InvariantCulture) + "×";
+            if (s != null)
+            {
+                info.Text = string.Join(" · ", new[] { AutoTracker.Words(s.Phase), s.Person, s.Phase == AutoTracker.Phase.Following ? s.Size.Name() : null }.Where(w => w != null));
+                info.Foreground = s.Phase == AutoTracker.Phase.Following ? T.AccentStrong : T.Warning;
+            }
+            else if (_trackProblem != null) { info.Text = _trackProblem; info.Foreground = T.Warning; }
+            else if (t != null && !can && Tracker.Detector == null) { info.Text = Tracker.Unavailable ?? ""; info.Foreground = T.InkSubtle; }
+            else { info.Text = can ? "Or click a person on Next" : ""; info.Foreground = T.InkSubtle; }
+        });
+        return col;
+    }
+
+    /// <summary>Starts following on a camera, at a point on its picture or the middle.</summary>
+    private void Start(PTZCamera c, PointD? at)
+    {
+        _trackProblem = null;
+        Tracker.Start(c, at, done: why => { if (why != null && why != "Tracking was stopped.") _trackProblem = why; });
     }
 
     // MARK: Take
