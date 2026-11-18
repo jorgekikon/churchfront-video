@@ -8,6 +8,35 @@ server and cuevideo-mcp.exe for Claude. Added since: auto tracking, the stage sc
 editor and NDI pictures. Every feature of the Mac app is now on Windows; what's left is testing
 on real hardware and packaging.
 
+## Next: first tests on real hardware (planned 2026-11-19)
+Where things stood at the end of 2026-11-18: everything committed and on the fork's windows-port
+branch except this plan; windows\dist rebuilt with all of it (run that build, not the Debug one).
+The switcher was off and the Canon cameras on; nothing had yet connected to the real hardware.
+Run these in order, with nothing live, and stop at the first surprise. Never during a service.
+
+1. Switcher probe, read-only: `.\probe.ps1` (uses the setup file's switcher). Expect the real model,
+   inputs, M/Es, aux and macros, and "commands sent to the switcher: 0". Safe even if something is live.
+2. Start dist\ChurchfrontVideo.exe normally (no CUEVIDEO_ settings). Windows Firewall will ask: allow on
+   private networks. Status page: switcher online, each Canon "answering, in control".
+3. Cameras, one at a time, off Live: joystick and arrow keys (stop on release), zoom, Focus, a shot saved
+   and recalled, a camera preset recalled, the Exposure window reading and setting gain. Canon pictures on
+   the monitors and tiles. Then camera_snapshots and match_exposure through Claude (step 8).
+4. Switching, with nothing live: set Next by tile and number key, Cut (Space), Fade (Return), Black, a key
+   button, the T-bar on Full switcher, a route button. Setup: add the volunteer sources and key buttons.
+5. Routing page: name the real outputs and screens, mark encoder feeds "not for operators" (they lock),
+   drag with the mouse (not tested before), save a route button.
+6. Auto tracking on a Canon with someone walking: Track, follow, cross another person, lose and find them.
+   Then read %APPDATA%\CueVideo\Logs\tracking.csv to tune latency (the preview's real delay) and check
+   shot sizes (the body-measure ratios came from the Mac's model).
+7. Stage scan with people in place on both Canons: shots frame each person; same-person letters across
+   the two cameras; follow by name.
+8. Claude: this repo's .mcp.json is the Mac's (it points at the Mac app, so it fails on Windows). For
+   Claude Code here, add a local-scope server pointing at windows\dist\cuevideo-mcp.exe; for the Claude
+   desktop app, press Setup > Claude > Connect Claude (not pressed before). Then get_status and a few tools.
+9. NDI with real senders, if any (ProPresenter, a PTZOptics/BirdDog camera): pictures, alpha lower thirds.
+   Note: the smoke test and FakeDevices --ndi announce fake NDI sources on the network while they run;
+   don't run them during a service (an open item: send them in a private NDI group instead).
+
 ## Layout
 
     windows/
