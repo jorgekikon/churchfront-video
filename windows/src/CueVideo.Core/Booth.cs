@@ -56,7 +56,7 @@ public sealed class Booth
         }
     }
 
-    private EngineerSection _section = EngineerSection.Setup;
+    private EngineerSection _section = EngineerSection.Status;
     public EngineerSection Section { get => _section; set { if (_section != value) { _section = value; Changed?.Invoke(); } } }
 
     public void Show(EngineerSection s) { Section = s; View = AppView.Engineer; }

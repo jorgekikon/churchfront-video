@@ -953,6 +953,7 @@ public static class ControlTools
             ["cameras"] = cams,
             ["stage_scan_names"] = new JsonArray(StageCast.Shared.Names.Select(n => (JsonNode?)n).ToArray()),
             ["platform"] = "windows",
+            ["app"] = new JsonObject { ["version"] = AppInfo.Version, ["build"] = AppInfo.Commit, ["built"] = AppInfo.Built?.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture) },
             ["auto_tracking"] = AutoTracker.Shared.Detector != null ? "ready" : AutoTracker.Shared.Unavailable ?? "not set up",
             ["config_file"] = Store.FilePath,
         };

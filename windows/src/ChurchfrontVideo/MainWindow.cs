@@ -40,7 +40,8 @@ public sealed class MainWindow : Window
         // Top bar
         _opText = T.Text("Operator", 13, FontWeights.SemiBold); _enText = T.Text("Engineer", 13, FontWeights.SemiBold);
         _opTab = T.Button(_opText, () => B.View = AppView.Operate, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "The booth screen (Ctrl+1)");
-        _enTab = T.Button(_enText, () => B.View = AppView.Engineer, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "Routing, full switcher, setup and status");
+        // The Engineer tab opens on Status, which anyone can see; the other pages may ask for the PIN.
+        _enTab = T.Button(_enText, () => { if (B.View != AppView.Engineer) B.Show(EngineerSection.Status); }, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "Status, and (with the PIN, if one is set) routing, full switcher and setup");
         var seg = new Border { Background = T.SurfaceSunken, BorderBrush = T.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2), Child = T.Row(2, _opTab, _enTab) };
         _status = T.Text("", 13, FontWeights.SemiBold);
         _cams = T.Text("", 13, null, T.InkMuted);

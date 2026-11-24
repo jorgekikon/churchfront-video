@@ -16,5 +16,7 @@
     <Resource Include="AppIcon.ico" />
     <!-- Auto tracking: runs the body-pose model on the graphics chip (DirectML), or the processor. -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime.DirectML" Version="1.20.1" />
+    <!-- When this build was made (UTC), shown on Engineer → Status with the version and commit. -->
+    <AssemblyMetadata Include="BuildDate" Value="$([System.DateTime]::UtcNow.ToString('o'))" />
   </ItemGroup>
 </Project>

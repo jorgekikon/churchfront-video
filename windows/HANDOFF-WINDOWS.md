@@ -298,6 +298,11 @@ After services the Canons are put in standby from Companion. The app now powers 
   not the PIN, and not in config.json. Forgotten PIN: delete that file.
 - Self-tests never touch it; they use `CUEVIDEO_LOCK_FILE`, or no lock at all.
 - Not covered: Claude's tools (through cuevideo-mcp), and the Operator view (Record and Stream already ask first).
+- The Engineer tab always opens on Status, which anyone can see. The gear and the shortcuts still go to their
+  own page, which shows the PIN pad if it's locked.
+- Status shows "This app": the version, the commit it was built from (from the informational version), and
+  the build date. The date is the BuildDate assembly metadata stamped by ChurchfrontVideo.csproj, read by
+  `AppInfo`. get_status gives the same under `app`.
 - Code: `src/CueVideo.Core/EngineerLock.cs`, `LockPage` in EngineerView.cs, and `Pin()` in SetupPage.cs.
   Checked: 13 smoke checks, plus the PIN pad, a wrong PIN, the right PIN, the PIN tab, and re-locking after
   Operator, all clicked in a test copy of the app.

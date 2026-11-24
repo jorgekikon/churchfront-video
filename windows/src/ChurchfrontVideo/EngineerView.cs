@@ -590,6 +590,11 @@ internal sealed class StatusPage : LiveView
     {
         var col = new StackPanel();
         col.Children.Add(EngineerView.Heading("Status", "Connections, and the last commands sent to the switcher."));
+        // Which build is running: handy when checking the booth has the latest.
+        var build = T.Text(AppInfo.Text, 13, FontWeights.SemiBold, T.Ink, wrap: true);
+        build.ToolTip = $"Churchfront Video for Windows. Built from commit {(AppInfo.Commit.Length > 0 ? AppInfo.Commit : "(unknown)")} of the windows-port branch.";
+        System.Windows.Automation.AutomationProperties.SetName(build, AppInfo.Text);
+        col.Children.Add(T.Card(T.Column(4, T.Caps("This app"), build)).Margin(0, 0, 0, 14));
         var sw = T.Text("", 13, null, T.Ink, wrap: true);
         Live(() =>
         {
