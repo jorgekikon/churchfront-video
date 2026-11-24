@@ -294,7 +294,7 @@ public sealed class AutoTracker
     public bool IsTracking(Guid id) => _sessions.ContainsKey(id);
 
     /// <summary>Whether this camera can track: there's a detector and a picture for it.</summary>
-    public bool CanTrack(PTZCamera c) => Detector != null && Pictures?.Has(c) == true;
+    public bool CanTrack(PTZCamera c) => Detector != null && c.Proto.HasPanTilt() && Pictures?.Has(c) == true;
 
     /// <summary>
     /// Start following someone on a camera. `point` (0 to 1, top left) picks the person nearest
@@ -306,6 +306,7 @@ public sealed class AutoTracker
     {
         Stop(camera.Id, quiet: true);
         if (Detector == null) { done?.Invoke(Unavailable ?? "Auto tracking isn't set up on this computer."); return; }
+        if (!camera.Proto.HasPanTilt()) { done?.Invoke($"{camera.Name} can't pan or tilt, so it can't follow anyone."); return; }
         if (Pictures?.Has(camera) != true) { done?.Invoke("Auto tracking needs the camera's picture: a Canon camera, or an NDI picture set for its switcher input in Setup."); return; }
         var s = new Session { Camera = camera.Id, Pick = point, Asked = size };
         if (person != null)

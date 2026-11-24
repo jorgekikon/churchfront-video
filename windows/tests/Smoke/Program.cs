@@ -36,7 +36,7 @@ JsonObject Tool(string name, JsonObject? args = null)
 var root = AppContext.BaseDirectory;
 var fake = Path.GetFullPath(Path.Combine(root, "..", "..", "..", "..", "..", "tools", "FakeDevices", "bin", "Debug", "net8.0-windows", "FakeDevices.exe"));
 if (!File.Exists(fake)) { Console.WriteLine($"Build tools/FakeDevices first ({fake} is missing)."); return 2; }
-var proc = Process.Start(new ProcessStartInfo(fake, "9920 --cams --canon") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true })!;
+var proc = Process.Start(new ProcessStartInfo(fake, "9920 --cams --canon --panasonic") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true })!;
 var fakeLog = new System.Collections.Concurrent.ConcurrentQueue<string>();
 proc.OutputDataReceived += (_, e) => { if (e.Data != null) fakeLog.Enqueue(e.Data); if (Environment.GetEnvironmentVariable("SMOKE_VERBOSE") != null) Console.WriteLine("    " + e.Data); };
 proc.BeginOutputReadLine();
@@ -168,6 +168,42 @@ try
     Check(r["error"] != null, "an unknown key button is refused");
     r = Tool("set_recording", new JsonObject());
     Check(r["error"]?.ToString().Contains("Nothing was changed") == true, "set_recording without on changes nothing");
+    // MARK: Panasonic camcorder (AG-CX350, PTZ Control Protocol over HTTP)
+    Check(PanasonicLinkInfo.Zoom(0) == "#Z50" && PanasonicLinkInfo.Zoom(1) == "#Z99" && PanasonicLinkInfo.Zoom(-1) == "#Z01"
+          && PanasonicLinkInfo.Zoom(0.001) == "#Z51" && PanasonicLinkInfo.Zoom(-0.001) == "#Z49", "Panasonic zoom speeds: 01 to 99, 50 stops, the gentlest still moves");
+    Check(PanasonicLinkInfo.Ptz("#Z50") == "aw_ptz?cmd=%23Z50&res=1" && PanasonicLinkInfo.Cam("OSE:69:1") == "aw_cam?cmd=OSE:69:1&res=1", "Panasonic URLs escape only the #");
+    var pcfg = CueConfig.Parse("""{ "cameras": [ { "name": "CX350", "host": "10.0.0.5", "proto": "panasonicHTTP" } ] }""");
+    Check(pcfg.Cameras[0].Proto == VISCAProtocol.PanasonicHTTP && pcfg.Cameras[0].Port == 80 && pcfg.ToFileText().Contains("\"panasonicHTTP\""), "a Panasonic camcorder reads and writes in the setup file, on port 80");
+    var pana = new PTZCamera { Name = "CX350", Host = "127.0.0.1", Port = 8092, Proto = VISCAProtocol.PanasonicHTTP, AtemInput = 3 };
+    var panaOff = new PTZCamera { Name = "CX350 off", Host = "127.0.0.1", Port = 8093, Proto = VISCAProtocol.PanasonicHTTP };
+    OnMain(() => { ptz.Cameras = ptz.Cameras.Concat(new[] { pana, panaOff }).ToList(); return 0; });
+    Check(Wait(() => ptz.Online.Contains(pana.Id) && ptz.HasControl(ptz.Camera(pana.Id)!)), "a Panasonic camcorder answers");
+    Check(Wait(() => ptz.Models.GetValueOrDefault(pana.Id) == "AG-CX350 (firmware 7.10)"), "reads its model and firmware");
+    Thread.Sleep(1000);
+    Check(!ptz.Online.Contains(panaOff.Id), "one with NDI|HX and IP REMOTE off (404) isn't counted as answering");
+    bool Sent(string what) => Wait(() => fakeLog.Any(l => l.StartsWith("PANASONIC ") && l.Contains(what)));
+    fakeLog.Clear();
+    OnMain(() => { ptz.Zoom(0.5, pana.Id); return 0; });
+    Check(Sent("aw_ptz #Z75 -> zS75"), "zooms in at the speed asked");
+    OnMain(() => { ptz.Zoom(0, pana.Id); return 0; });
+    Check(Sent("aw_ptz #Z50 -> zS50"), "and stops");
+    OnMain(() => { ptz.FocusOnce(pana.Id); ptz.AutoFocus(false, pana.Id); return 0; });
+    Check(Sent("aw_cam OSE:69:1 -> OSE:69:1") && Sent("aw_ptz #D10 -> d10"), "one-touch focus, and manual focus");
+    var progWas = atem.State.ProgramOf(0);
+    fakeLog.Clear();
+    OnMain(() => { atem.SetProgram(3, 0); return 0; });
+    Check(Sent("aw_ptz #DA1 -> dA1"), "its red tally lights when its input goes on Live");
+    fakeLog.Clear();
+    OnMain(() => { atem.SetProgram(progWas ?? 1, 0); return 0; });
+    Check(Sent("aw_ptz #DA0 -> dA0"), "and goes out when it leaves Live");
+    Check(!OnMain(() => ptz.CanSaveShots(pana)) && !OnMain(() => AutoTracker.Shared.CanTrack(pana)), "no shots and no tracking on a camera that can't pan");
+    r = Tool("camera_move", new JsonObject { ["camera"] = "CX350", ["pan"] = 0.5, ["duration_ms"] = 100 });
+    var r2 = Tool("save_shot", new JsonObject { ["camera"] = "CX350", ["name"] = "Wide" });
+    Check(r["error"]?.ToString().Contains("no pan or tilt") == true && r2["error"]?.ToString().Contains("no pan or tilt") == true, "Claude is told it has no pan or tilt, instead of nothing happening");
+    r = Tool("camera_zoom", new JsonObject { ["camera"] = "CX350", ["speed"] = -0.5, ["duration_ms"] = 100 });
+    Check(r["ok"] != null && Sent("aw_ptz #Z26"), "camera_zoom works on it");
+    OnMain(() => { ptz.Cameras = ptz.Cameras.Where(c => c.Proto != VISCAProtocol.PanasonicHTTP).ToList(); return 0; });
+
     // MARK: Auto tracking (the pose model itself is tried by tests/TrackSim)
     var redBlue = Appearance.Solid(200, 30, 30, 30, 30, 160);
     var greenGrey = Appearance.Solid(30, 160, 40, 128, 128, 128);

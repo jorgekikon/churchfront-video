@@ -15,10 +15,13 @@ using System.Windows.Media.Imaging;
 //   --picture <photo>  (one or more) the Canon looks at a virtual stage made from photos with people in them,
 //                      and pans, tilts and zooms over it as told, for trying auto tracking and the stage scan.
 //   --ndi              NDI sources "Stage camera" (what the fake Canon sees) and "Lower third" (alpha).
+//   --panasonic        a Panasonic AG-CX350's PTZ Control Protocol (HTTP) on 127.0.0.1:8092, and on :8093 one
+//                      with control off (NDI|HX and IP REMOTE both off), which answers 404 to everything.
 
 var port = args.FirstOrDefault(a => int.TryParse(a, out _)) is string p ? int.Parse(p) : 9910;
 for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "--picture") FakeCanon.Stage.Add(args[i + 1]);
 if (args.Contains("--cams")) FakeCams.Start();
+if (args.Contains("--panasonic")) { FakePanasonic.Start(8092, on: true); FakePanasonic.Start(8093, on: false); }
 if (args.Contains("--ndi")) FakeNdi.Start();
 if (args.Contains("--canon") || args.Contains("--ndi")) FakeCanon.Start(8091);
 new Switcher(port).Run();
@@ -313,6 +316,94 @@ static class FakeCams
 }
 
 /// <summary>Enough of a Canon PTZ's HTTP interface for the app: sessions, control, info, video.</summary>
+/// <summary>A Panasonic AG-CX350 as its PTZ Control Protocol describes it (Rev.3.00): the lens and
+/// tally on /cgi-bin/aw_ptz, camera commands on /cgi-bin/aw_cam, getinfo for the model. Zoom moves
+/// at the speed it was given, between 555h (wide) and FFFh (tele).</summary>
+static class FakePanasonic
+{
+    static double _zoom = 0x555, _zoomSpeed;   // position, and steps a second (+ tele)
+    static DateTime _zoomAt = DateTime.UtcNow;
+    static int _af = 1, _tally;
+    static readonly object Lock = new();
+
+    public static void Start(int port, bool on)
+    {
+        var l = new TcpListener(IPAddress.Loopback, port);
+        l.Start();
+        Console.WriteLine($"Fake Panasonic AG-CX350 on http://127.0.0.1:{port}/cgi-bin/ ({(on ? "control on" : "control off: 404")})");
+        Task.Run(async () =>
+        {
+            while (true)
+            {
+                var c = await l.AcceptTcpClientAsync();
+                _ = Task.Run(() => Serve(c, on));
+            }
+        });
+    }
+
+    static int ZoomNow()
+    {
+        var now = DateTime.UtcNow;
+        _zoom = Math.Clamp(_zoom + _zoomSpeed * (now - _zoomAt).TotalSeconds, 0x555, 0xFFF);
+        _zoomAt = now;
+        return (int)_zoom;
+    }
+
+    /// <summary>The reply body for a command, or null for one it doesn't know (404, as the camera does).</summary>
+    public static string? Reply(string cgi, string cmd)
+    {
+        lock (Lock)
+        {
+            if (cgi == "aw_ptz")
+            {
+                if (cmd == "#O") return "p1";
+                if (cmd.StartsWith("#Z") && cmd.Length == 4 && int.TryParse(cmd[2..], out var z) && z is >= 1 and <= 99)
+                {
+                    ZoomNow();
+                    _zoomSpeed = (z - 50) * 20.0;       // #Z99: about 1000 steps a second
+                    return $"zS{z:00}";
+                }
+                if (cmd == "#GZ") return $"gz{ZoomNow():X3}";
+                if (cmd is "#D11" or "#D10") { _af = cmd[3] - '0'; return $"d1{_af}"; }
+                if (cmd == "#D1") return $"d1{_af}";
+                if (cmd is "#DA1" or "#DA0") { _tally = cmd[3] - '0'; return $"dA{_tally}"; }
+                if (cmd == "#DA") return $"dA{_tally}";
+                return null;
+            }
+            if (cgi == "aw_cam")
+            {
+                if (cmd == "OSE:69:1") return "OSE:69:1";
+                if (cmd is "OAF:0" or "OAF:1") { _af = cmd[4] - '0'; return cmd; }
+                if (cmd == "QAF") return $"OAF:{_af}";
+                return null;
+            }
+            if (cgi == "getinfo") return "MAC=00-00-00-00-00-00\r\nSERIAL=FAKE0001\r\nVERSION=7.10\r\nNAME=AG-CX350\r\n";
+            return null;
+        }
+    }
+
+    static async Task Serve(TcpClient c, bool on)
+    {
+        using (c)
+        {
+            var s = c.GetStream();
+            var buf = new byte[4096];
+            var n = await s.ReadAsync(buf);
+            if (n <= 0) return;
+            var path = (Encoding.ASCII.GetString(buf, 0, n).Split("\r\n")[0].Split(' ').ElementAtOrDefault(1)) ?? "/";
+            var cgi = path.StartsWith("/cgi-bin/") ? path[9..].Split('?')[0] : "";
+            var q = path.Contains('?') ? path[(path.IndexOf('?') + 1)..] : "";
+            var cmd = q.Split('&').Where(kv => kv.StartsWith("cmd=")).Select(kv => Uri.UnescapeDataString(kv[4..])).FirstOrDefault() ?? "";
+            var body = on ? Reply(cgi, cgi == "getinfo" ? "" : cmd) : null;
+            Console.WriteLine($"PANASONIC{(on ? "" : " (off)")} {cgi} {cmd} -> {body ?? "404"}");
+            var bytes = Encoding.ASCII.GetBytes(body ?? "Not Found");
+            var head = $"HTTP/1.1 {(body == null ? "404 Not Found" : "200 OK")}\r\nContent-Type: text/plain\r\nContent-Length: {bytes.Length}\r\nConnection: close\r\n\r\n";
+            await s.WriteAsync(Encoding.ASCII.GetBytes(head));
+            await s.WriteAsync(bytes);
+        }
+    }
+}
+
 static class FakeCanon
 {
     static int _pan, _tilt, _zoom = 5000, _gain = 60, _shutter = 60, _iris = 400, _kelvin = 5600;

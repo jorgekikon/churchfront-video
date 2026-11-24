@@ -247,3 +247,20 @@ Upstream main gained three changes on 2026-11-22 (2f37b92, cd72e1d, a59fb4e); al
 - Keeping up with the Mac: last synced at upstream 9892525 (0.1.2). `git fetch origin` then
   `git log 9892525..origin/main` lists what's new since (upstream isn't merged into windows-port, so
   `windows-port..origin/main` would keep listing the commits already ported).
+
+## Panasonic AG-CX350 + pan/tilt head (started 2026-11-23)
+The CX350 now sends NDI|HX (new free firmware), so its picture uses the existing NDI path.
+Full plan, command formats and DB3 firmware findings: `windows/CX350-PTZ-NOTES.md`.
+- Done (steps 1, 2, 4 of the plan): Control "Panasonic (HTTP)" in Setup (proto panasonicHTTP, port 80),
+  PanasonicLink in PTZ.cs: zoom by speed (#Z01-99, 50 stops; a stop is sent twice), one-touch AF (OSE:69:1),
+  AF on/off (#D11/#D10), online from the power query (#O -> p1) every 3 s, model and firmware from
+  getinfo?FILE=1, and the red tally (#DA1/#DA0) following the switcher's own tally for its input
+  (Booth -> PTZController.SetTally; sent again whenever the camera comes back).
+- A camera with no pan or tilt (HasPanTilt) greys out the joystick and Track, has no shots, Exposure
+  or stage scan, and Claude's move/shot/preset tools say why. Setup shows how to turn control on when it
+  isn't answering (the camera 404s everything unless NDI|HX is on or IP REMOTE is ENABLE(HOLD), with the
+  Auto/Manual switch on AUTO).
+- Checked against FakeDevices --panasonic (127.0.0.1:8092 answering, :8093 with control off): 14 new
+  Smoke checks. Not tried on the real camera yet; first, the two browser zoom URLs in the notes.
+- Not done: iris (#AXI, #D3) and other picture settings, manual focus speed, the pan/tilt head (composite
+  camera), RTSP. The Mac app doesn't know panasonicHTTP and won't open a setup file that has it.

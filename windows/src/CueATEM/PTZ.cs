@@ -48,6 +48,9 @@ internal interface IPTZLink
     void ReadExposure();
     void SetExposure(PTZExposure e);
     void AutoExposure();
+    /// <summary>The camera's own red tally light: on while its switcher input is on Live.
+    /// Only the Panasonic camcorder link lights one; the others ignore it.</summary>
+    void Tally(bool on) { }
 }
 
 // MARK: - VISCA
@@ -815,6 +818,219 @@ internal sealed class CanonLink : IPTZLink
     }
 }
 
+// MARK: - Panasonic camcorder
+
+/// <summary>
+/// A Panasonic camcorder (AG-CX350, also AJ-UPX360, AG-CX200) over Panasonic's PTZ Control
+/// Protocol: HTTP GETs on port 80, "/cgi-bin/aw_ptz?cmd=#..&res=1" for the lens and tally,
+/// "/cgi-bin/aw_cam?cmd=..&res=1" for camera settings ("CX350/CX4000 Control Using PTZ Control
+/// Protocol", Rev.3.00). The camera answers only while NDI|HX is on or IP REMOTE is
+/// ENABLE(HOLD), and with its Auto/Manual switch on AUTO; otherwise every command gets 404.
+/// It has no pan or tilt (a motorized head may come later, as a separate link), and can't be
+/// sent to a zoom position (only zoom speed, and a zoom position query), so it has no shots.
+/// </summary>
+internal sealed class PanasonicLink : IPTZLink
+{
+    private readonly PTZCamera _camera;
+    private readonly SerialQueue _queue;
+    private readonly HttpClient _http;
+    private bool _stopped;
+    private Timer? _timer;
+    public Action<bool>? OnState { get; set; }
+    public Action<Dictionary<int, string>>? OnPresets { get; set; }
+    public Action<string>? OnModel { get; set; }
+    public Action<HashSet<int>>? OnExposurePresets { get; set; }
+    public Action<CameraExposure>? OnExposure { get; set; }
+    public Action<bool>? OnControl { get; set; }
+    private bool _online;
+    private bool? _tally;       // what the light should show; sent again whenever the camera comes back
+    private bool _modelRead;
+
+    public PanasonicLink(PTZCamera camera, SerialQueue queue)
+    {
+        _camera = camera;
+        _queue = queue;
+        _http = new HttpClient(new SocketsHttpHandler { MaxConnectionsPerServer = 2, UseProxy = false }) { Timeout = TimeSpan.FromSeconds(3) };
+    }
+
+    private string Root => $"http://{_camera.Host}{(_camera.Port == 80 ? "" : $":{_camera.Port}")}/cgi-bin/";
+    /// <summary>A lens or tally command ("#Z50"). Only "#" is escaped (as %23), the way the
+    /// manual's own examples write it; the colons in camera commands stay as they are.</summary>
+    public static string PtzPath(string cmd) => "aw_ptz?cmd=" + cmd.Replace("#", "%23") + "&res=1";
+    /// <summary>A camera command ("OSE:69:1").</summary>
+    public static string CamPath(string cmd) => "aw_cam?cmd=" + cmd.Replace("#", "%23") + "&res=1";
+
+    /// <summary>Zoom speed, -1 (wide, fastest) to 1 (tele, fastest): #Z01 to #Z99, #Z50 stops.</summary>
+    public static string ZoomCommand(double v)
+    {
+        if (v == 0) return "#Z50";
+        var n = (int)Math.Round(50 + Math.Clamp(v, -1, 1) * 49, MidpointRounding.AwayFromZero);
+        if (n == 50) n = v > 0 ? 51 : 49;   // the gentlest move still moves
+        return $"#Z{n:00}";
+    }
+
+    private void SetOnline(bool v)
+    {
+        if (v == _online) return;
+        _online = v;
+        OnState?.Invoke(v);
+        OnControl?.Invoke(v);
+        if (v)
+        {
+            if (_tally is bool t) Send(PtzPath(t ? "#DA1" : "#DA0"), "tally");
+            if (!_modelRead) ReadModel();
+        }
+    }
+
+    /// <summary>GET a path under /cgi-bin/. Calls back on the queue with the reply body, or null
+    /// when there was no answer or not 200 (404: control is off on the camera, see above).</summary>
+    private void Get(string path, Action<string?>? done = null)
+    {
+        var url = Root + path;
+        Task.Run(async () =>
+        {
+            string? text = null;
+            try
+            {
+                using var r = await _http.GetAsync(url);
+                if (r.StatusCode == HttpStatusCode.OK) text = (await r.Content.ReadAsStringAsync()).Trim();
+            }
+            catch { }
+            _queue.Post(() => done?.Invoke(text));
+        });
+    }
+
+    public void Start()
+    {
+        _stopped = false;
+        if (_camera.Host.Length == 0) return;
+        Poll();
+        _timer = new Timer(_ => _queue.Post(Poll), null, TimeSpan.FromSeconds(3), TimeSpan.FromSeconds(3));
+    }
+
+    public void Stop()
+    {
+        _stopped = true;
+        _timer?.Dispose(); _timer = null;
+        _queued.Clear();
+        SetOnline(false);
+    }
+
+    /// <summary>"Is it there and listening": the power query, which always answers p1.</summary>
+    private void Poll()
+    {
+        if (_stopped) return;
+        Get(PtzPath("#O"), text => { if (!_stopped) SetOnline(text != null && text.StartsWith("p", StringComparison.Ordinal)); });
+    }
+
+    /// <summary>Model and firmware, from "NAME=AG-CX350" and "VERSION=7.10" lines.</summary>
+    private void ReadModel()
+    {
+        Get("getinfo?FILE=1", text =>
+        {
+            if (text == null) return;
+            var kv = ParseInfo(text);
+            if (kv.TryGetValue("NAME", out var name) && name.Length > 0)
+            {
+                _modelRead = true;
+                OnModel?.Invoke(kv.TryGetValue("VERSION", out var v) && v.Length > 0 ? $"{name} (firmware {v})" : name);
+            }
+        });
+    }
+
+    public static Dictionary<string, string> ParseInfo(string text)
+    {
+        var o = new Dictionary<string, string>();
+        foreach (var line in text.Split('\n', '\r'))
+        {
+            var i = line.IndexOf('=');
+            if (i > 0) o[line[..i].Trim()] = line[(i + 1)..].Trim();
+        }
+        return o;
+    }
+
+    // One request at a time; a newer zoom replaces one still waiting, so a stop is never
+    // overtaken by an older move, and a stop that fails is tried again.
+    private bool _sending;
+    private readonly List<(string? Key, string Path, int Tries)> _queued = new();
+    private string _lastZoom = "";
+
+    private static bool IsStop(string path) => path == PtzPath("#Z50");
+
+    private void Send(string path, string? key = null)
+    {
+        var i = key == null ? -1 : _queued.FindIndex(x => x.Key == key);
+        if (i >= 0) _queued[i] = (key, path, 0); else _queued.Add((key, path, 0));
+        Pump();
+    }
+
+    private void Pump()
+    {
+        if (_sending || _queued.Count == 0 || _stopped) return;
+        var next = _queued[0];
+        _queued.RemoveAt(0);
+        _sending = true;
+        Get(next.Path, text =>
+        {
+            _sending = false;
+            if (text == null)
+            {
+                // No answer: drop waiting moves, but keep trying a stop unless something newer replaced it.
+                _queued.RemoveAll(x => !IsStop(x.Path) && x.Key != "tally");
+                if (IsStop(next.Path) && next.Tries < 3 && !_queued.Any(x => x.Key == next.Key))
+                    _queued.Insert(0, (next.Key, next.Path, next.Tries + 1));
+                SetOnline(false);
+                if (_queued.Count > 0) _queue.After(0.3, Pump);
+                return;
+            }
+            SetOnline(true);
+            Pump();
+        });
+    }
+
+    public void Zoom(double v)
+    {
+        var path = PtzPath(ZoomCommand(v));
+        _lastZoom = path;
+        Send(path, "zoom");
+        // Sent once more shortly after, unless something newer was: a lost stop would leave it zooming.
+        if (v == 0) _queue.After(0.3, () => { if (_lastZoom == path) Send(path, "zoom"); });
+    }
+
+    public void AutoFocus(bool on) => Send(PtzPath(on ? "#D11" : "#D10"));
+    public void FocusOnce() => Send(CamPath("OSE:69:1"));
+
+    public void Tally(bool on)
+    {
+        if (_tally == on) return;
+        _tally = on;
+        if (_online) Send(PtzPath(on ? "#DA1" : "#DA0"), "tally");
+    }
+
+    // No pan or tilt, no presets, and no zoom position to go to.
+    public void Drive(double pan, double tilt) { }
+    public void DriveRaw(int pan, int tilt) { }
+    public void Home() { }
+    public void Recall(int n) { }
+    public void Store(int n) { }
+    public void GoTo(PTZPosition p) { }
+    public void ReadPosition(Action<PTZPosition?> done) => done(null);
+    public void ReadShotPosition(Action<PTZPosition?> done) => done(null);
+    public void DeletePreset(int n, Action<string?> done) => done("This camera has no presets.");
+    // Iris, gain and white balance come in a later step.
+    public void ReadExposure() { }
+    public void SetExposure(PTZExposure e) { }
+    public void AutoExposure() { }
+}
+
+/// <summary>The Panasonic link's command building, for the self-test.</summary>
+public static class PanasonicLinkInfo
+{
+    public static string Zoom(double v) => PanasonicLink.ZoomCommand(v);
+    public static string Ptz(string cmd) => PanasonicLink.PtzPath(cmd);
+    public static string Cam(string cmd) => PanasonicLink.CamPath(cmd);
+}
+
 // MARK: - Controller
 
 /// <summary>Every camera, and which one the joystick drives. Public members are used from the
@@ -884,6 +1100,7 @@ public sealed class PTZController
     private void Restart()
     {
         var cams = _cameras.Select(c => c.Clone()).ToList();
+        var tally = new Dictionary<Guid, bool>(_tally);
         _queue.Post(() =>
         {
             foreach (var l in _links.Values) l.Stop();
@@ -891,7 +1108,13 @@ public sealed class PTZController
             foreach (var c in cams)
             {
                 var id = c.Id;
-                IPTZLink l = c.Proto == VISCAProtocol.CanonXC ? new CanonLink(c, _queue) : new VISCALink(c, _queue);
+                IPTZLink l = c.Proto switch
+                {
+                    VISCAProtocol.CanonXC => new CanonLink(c, _queue),
+                    VISCAProtocol.PanasonicHTTP => new PanasonicLink(c, _queue),
+                    _ => new VISCALink(c, _queue),
+                };
+                if (tally.TryGetValue(id, out var lit)) l.Tally(lit);
                 l.OnState = on => MainThread.Post(() => { if (on) Online.Add(id); else Online.Remove(id); Notify(); });
                 l.OnPresets = names => MainThread.Post(() => { ReportedPresets[id] = names; Notify(); });
                 l.OnModel = m => MainThread.Post(() => { Models[id] = m; Notify(); });
@@ -959,6 +1182,22 @@ public sealed class PTZController
     {
         if ((id ?? _selected) is not Guid x) return;
         _queue.Post(() => { if (_links.TryGetValue(x, out var l)) f(l); });
+    }
+
+    private readonly Dictionary<Guid, bool> _tally = new();
+
+    /// <summary>Lights each camera's own red tally while its switcher input is on Live (only
+    /// cameras that have one act on it). Called on main with the inputs on Live now; sends only changes.</summary>
+    public void SetTally(Func<int, bool> onLive)
+    {
+        foreach (var c in _cameras)
+        {
+            var on = c.AtemInput is int i && onLive(i);
+            if (_tally.TryGetValue(c.Id, out var was) && was == on) continue;
+            _tally[c.Id] = on;
+            var id = c.Id;
+            With(id, l => l.Tally(on));
+        }
     }
 
     public void TrackZoom(double v, Guid camera) => With(camera, l => l.Zoom(Math.Clamp(v, -1, 1)));
@@ -1136,5 +1375,5 @@ public sealed class PTZController
     /// VISCA cameras take commands from anyone, so answering is enough.</summary>
     public bool HasControl(PTZCamera c) => c.Proto == VISCAProtocol.CanonXC ? Controlled.Contains(c.Id) : Online.Contains(c.Id);
 
-    public bool CanSaveShots(PTZCamera c) => c.Host.Length > 0;
+    public bool CanSaveShots(PTZCamera c) => c.Host.Length > 0 && c.Proto.HasPanTilt();
 }

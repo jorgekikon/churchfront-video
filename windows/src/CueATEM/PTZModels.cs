@@ -8,7 +8,9 @@ namespace CueATEM;
 // The camera records kept in the config file. Same JSON as the Mac app, so one config.json
 // works on both: { "name": "Cam 1", "host": "192.168.1.91", "proto": "canonXC", "atemInput": 9 }.
 
-public enum VISCAProtocol { CanonXC, SonyUDP, RawTCP }
+/// <summary>How the app talks to a camera. PanasonicHTTP is Windows only for now: the Mac app
+/// doesn't know it, and won't open a setup file that has one.</summary>
+public enum VISCAProtocol { CanonXC, SonyUDP, RawTCP, PanasonicHTTP }
 
 public static class VISCAProtocolInfo
 {
@@ -16,20 +18,26 @@ public static class VISCAProtocolInfo
     {
         VISCAProtocol.CanonXC => "Canon (HTTP)",
         VISCAProtocol.SonyUDP => "VISCA over IP (UDP)",
+        VISCAProtocol.PanasonicHTTP => "Panasonic (HTTP)",
         _ => "VISCA over TCP",
     };
 
     public static ushort DefaultPort(this VISCAProtocol p) => p switch
     {
-        VISCAProtocol.CanonXC => 80,
+        VISCAProtocol.CanonXC or VISCAProtocol.PanasonicHTTP => 80,
         VISCAProtocol.SonyUDP => 52381,
         _ => 5678,
     };
 
-    /// <summary>Canon's HTTP protocol can't save presets without an admin login.</summary>
-    public static bool CanStorePresets(this VISCAProtocol p) => p != VISCAProtocol.CanonXC;
+    /// <summary>Canon's HTTP protocol can't save presets without an admin login; a Panasonic
+    /// camcorder has none.</summary>
+    public static bool CanStorePresets(this VISCAProtocol p) => p is not (VISCAProtocol.CanonXC or VISCAProtocol.PanasonicHTTP);
 
-    /// <summary>The name in the config file: canonXC, sonyUDP or rawTCP.</summary>
+    /// <summary>Whether the camera can pan and tilt (and so be joysticked, sent to shots, tracked
+    /// or scanned). A Panasonic camcorder only zooms and focuses until a head is added.</summary>
+    public static bool HasPanTilt(this VISCAProtocol p) => p != VISCAProtocol.PanasonicHTTP;
+
+    /// <summary>The name in the config file: canonXC, sonyUDP, rawTCP or panasonicHTTP.</summary>
     public static string Key(this VISCAProtocol p) => JsonNamingPolicy.CamelCase.ConvertName(p.ToString());
 }
 

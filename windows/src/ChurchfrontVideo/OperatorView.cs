@@ -276,7 +276,8 @@ public sealed class OperatorView : LiveView
                 : T.Row(8, T.Text("🎥", 13), T.Text(t.Name, 16, FontWeights.Bold), T.Badge("On next", T.OnAction, T.Preview)),
             ToolTip = "Exposure and saved shots below act on the camera that's on Next.",
         };
-        if (t != null)
+        // A Panasonic camcorder's iris, gain and white balance aren't wired up yet.
+        if (t != null && t.Proto != VISCAProtocol.PanasonicHTTP)
         {
             var expo = T.Small("Exposure", () => ExposureWindow.Show(t.Id), "Gain, shutter, iris and white balance for the camera on Next");
             DockPanel.SetDock(expo, Dock.Right);
@@ -304,7 +305,8 @@ public sealed class OperatorView : LiveView
     {
         var t = Target;
         var title = T.Step(2, t == null ? "Frame the shot" : $"Frame {t.Name}");
-        var joy = new Joystick { Width = 170, Height = 170, IsEnabled = t != null, OnMove = (x, y) => Ptz.Drive(x, y), OnEnd = () => Ptz.StopDrive() };
+        // A camcorder with no head zooms and focuses only: the joystick is greyed out for it.
+        var joy = new Joystick { Width = 170, Height = 170, IsEnabled = t != null && t.Proto.HasPanTilt(), Opacity = t != null && !t.Proto.HasPanTilt() ? 0.35 : 1, ToolTip = t != null && !t.Proto.HasPanTilt() ? $"{t.Name} can't pan or tilt. Zoom and Focus work." : null, OnMove = (x, y) => Ptz.Drive(x, y), OnEnd = () => Ptz.StopDrive() };
         var zoom = new ZoomRocker { Width = 44, Height = 170, IsEnabled = t != null, OnZoom = v => Ptz.Zoom(v) };
         var status = T.Text("", 11, FontWeights.SemiBold, T.Warning, wrap: true); status.Width = 150;
         var side = T.Column(8,
@@ -420,6 +422,7 @@ public sealed class OperatorView : LiveView
                 : s != null ? "Stop following (Ctrl+T; Esc or Ctrl+. stops every tracking camera). Moving the joystick or recalling a shot also stops it."
                 : can ? "Follow the person in the middle of the shot (Ctrl+T). Or click someone on the Next picture. Moving the joystick stops tracking."
                 : Tracker.Detector == null ? Tracker.Unavailable ?? "Auto tracking isn't set up on this computer."
+                : !t.Proto.HasPanTilt() ? $"{t.Name} can't pan or tilt, so it can't follow anyone."
                 : "Auto tracking needs the camera's picture: a Canon camera's own, or an NDI picture set for its switcher input in Setup.";
             sizes.Visibility = speedRow.Visibility = headRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
             byName.Visibility = s == null && can && StageCast.Shared.Names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;

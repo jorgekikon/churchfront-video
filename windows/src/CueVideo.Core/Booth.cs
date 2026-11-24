@@ -112,7 +112,10 @@ public sealed class Booth
         {
             // The camera controls follow the camera on Next.
             if (Prefs.FollowPreview) Ptz.Follow(Atem.State.PreviewOf(Me));
+            // Cameras with their own tally light (a Panasonic camcorder) light it while on Live.
+            Ptz.SetTally(Atem.State.OnLive);
         };
+        Ptz.CamerasChanged += () => Ptz.SetTally(Atem.State.OnLive);
         Store.Attach(this);
     }
 }

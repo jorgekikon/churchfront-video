@@ -236,7 +236,7 @@ public static class ControlTools
 
             case "camera_move":
             {
-                var c = Cam(a, changing: true);
+                var c = Pointable(Cam(a, changing: true));
                 var ms = ClampMs(a["duration_ms"]);
                 Ptz.Drive(Dbl(a["pan"]), Dbl(a["tilt"]), c.Id);
                 MainThread.After(ms / 1000.0, () => { Ptz.StopDrive(c.Id); done(Ok($"Moved {c.Name} for {ms} ms", Warn(c))); });
@@ -436,7 +436,7 @@ public static class ControlTools
                 AutoTracker.Shared.Stop(c.Id); done(Ok($"{c.Name} stopped tracking"));
                 break;
             }
-            case "camera_home": { var c = Cam(a, changing: true); Ptz.Home(c.Id); done(Ok($"{c.Name} going home")); break; }
+            case "camera_home": { var c = Pointable(Cam(a, changing: true)); Ptz.Home(c.Id); done(Ok($"{c.Name} going home")); break; }
             case "set_exposure":
             {
                 var c = Cam(a, changing: true);
@@ -510,13 +510,14 @@ public static class ControlTools
                 break;
             }
             case "recall_shot":
-            { var c = Cam(a, changing: true); var sh = Shot(c, a["shot"]); Ptz.Go(sh, c.Id); done(Ok($"{c.Name}: {sh.Name}")); break; }
+            { var c = Cam(a, changing: true); var sh = Shot(c, a["shot"]); if (sh.Kind == ShotKind.Position) Pointable(c); Ptz.Go(sh, c.Id); done(Ok($"{c.Name}: {sh.Name}")); break; }
             case "save_shot":
             {
                 var c = Cam(a, changing: false);
                 var nm = (CueJson.Str(a["name"]) ?? "").Trim();
                 if (nm.Length == 0) throw Fail("Give the shot a name.");
                 var kind = string.Equals(CueJson.Str(a["kind"]), "exposure", StringComparison.OrdinalIgnoreCase) ? ShotKind.Exposure : ShotKind.Position;
+                if (kind == ShotKind.Position) Pointable(c);
                 var existing = CueJson.Bool(a["replace"]) == true ? c.Shots.FirstOrDefault(x => x.Name.ToLowerInvariant() == nm.ToLowerInvariant()) : null;
                 Ptz.SaveShot(nm, c.Id, kind, existing?.Id, worked =>
                     done(worked ? Ok($"Saved {kind.ToString().ToLowerInvariant()} shot {nm} on {c.Name}")
@@ -541,7 +542,7 @@ public static class ControlTools
             }
             case "recall_camera_preset":
             {
-                var c = Cam(a, changing: true); var n = Preset(c, a["preset"]);
+                var c = Pointable(Cam(a, changing: true)); var n = Preset(c, a["preset"]);
                 Ptz.Recall(n, c.Id);
                 done(Ok($"{c.Name}: preset {n} {(Ptz.PresetNames(c).TryGetValue(n, out var pn) ? pn : "")}".TrimEnd()));
                 break;
@@ -691,6 +692,10 @@ public static class ControlTools
             throw Fail($"{c.Name} is on Live. Send allow_live: true to change it anyway.");
         return c;
     }
+
+    /// <summary>A camera that can be pointed. A Panasonic camcorder only zooms and focuses.</summary>
+    private static PTZCamera Pointable(PTZCamera c) => c.Proto.HasPanTilt() ? c
+        : throw Fail($"{c.Name} is a camcorder with no pan or tilt, so it has no moves, shots or presets. It can zoom (camera_zoom) and focus.");
 
     private static PTZShot Shot(PTZCamera c, JsonNode? v)
     {

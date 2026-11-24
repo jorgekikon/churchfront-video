@@ -77,6 +77,7 @@ public sealed class ShotDeckView : LiveView
         var cams = Cams;
         if (cams.Count == 0) { root.Children.Add(Note("No cameras set up yet. Add them in Engineer, Setup (Ctrl+,).")); return root; }
         if (Shown is not PTZCamera c) { root.Children.Add(Note("Put a camera on Next to see its shots. Click a camera above.")); return root; }
+        if (!c.Proto.HasPanTilt()) { root.Children.Add(Note($"{c.Name} zooms and focuses only, so it has no shots.")); return root; }
         if (OnLive(c))
         {
             var banner = T.Text($"⚠  {c.Name} is on Live. A shot here moves it on air, so each one asks first.", 11, FontWeights.SemiBold, T.Program, wrap: true);

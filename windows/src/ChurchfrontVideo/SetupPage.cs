@@ -229,6 +229,7 @@ internal sealed class SetupPage : LiveView
             UIElement input = S.Inputs.Count > 0 ? T.Picker(inputName, inputs, 200)
                 : T.Field(c.AtemInput?.ToString(CultureInfo.InvariantCulture) ?? "", v => Edit(x => x.AtemInput = int.TryParse(v, out var n) ? n : null), 200, "Input number");
             var presets = c.Proto == VISCAProtocol.CanonXC ? (UIElement)T.Text("From the camera", 12, null, T.InkMuted).With(t => t.Width = 130)
+                : c.Proto == VISCAProtocol.PanasonicHTTP ? T.Text("None: zoom and focus", 12, null, T.InkMuted).With(t => t.Width = 130)
                 : T.Picker($"Count from {c.FirstPreset}", new[] { ("Count from 0", (Action)(() => Edit(x => x.FirstPreset = 0))), ("Count from 1", (Action)(() => Edit(x => x.FirstPreset = 1))) }, 130);
             var del = T.Small("Delete", () =>
             {
@@ -236,6 +237,15 @@ internal sealed class SetupPage : LiveView
                     B.Ptz.Edit(l => l.RemoveAll(y => y.Id == id));
             }, danger: true);
             col.Children.Add(T.Row(8, dot, name, host, proto, port, input, presets, del).Margin(0, 0, 0, 8));
+            if (c.Proto == VISCAProtocol.PanasonicHTTP)
+            {
+                // The camcorder turns every command away (404) unless these are set on it.
+                var hint = T.Text("Not answering? On the camera, turn NDI|HX on (or set IP REMOTE to ENABLE(HOLD)), and set the Auto/Manual switch to AUTO.",
+                    12, null, T.Warning, wrap: true).Margin(18, -4, 0, 10);
+                hint.MaxWidth = 760;
+                Live(() => hint.Visibility = B.Ptz.Online.Contains(id) || c.Host.Length == 0 ? Visibility.Collapsed : Visibility.Visible);
+                col.Children.Add(hint);
+            }
         }
         col.Children.Add(T.Small("+ Add a camera", () => B.Ptz.Edit(l => l.Add(new PTZCamera { Name = $"Camera {l.Count + 1}", Proto = VISCAProtocol.CanonXC, Port = 80 })))
             .With(b => b.HorizontalAlignment = HorizontalAlignment.Left).Margin(18, 4, 0, 0));
