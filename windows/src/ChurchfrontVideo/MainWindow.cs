@@ -38,7 +38,9 @@ public sealed class MainWindow : Window
         if (B.Prefs.Maximized) WindowState = WindowState.Maximized;
         Background = T.Bg; Foreground = T.Ink; FontFamily = T.Sans;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
-        try { Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/AppIcon.ico")); } catch { }
+        // A BitmapFrame keeps every size in the .ico, so Windows picks the right one for the title bar
+        // (16) and the taskbar (24, 32…); a BitmapImage would load only the file's first size.
+        try { Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/AppIcon.ico")); } catch { }
 
         BuildShell();
         // First run (no setup file before this one was made), or a self-test asking for it: start the tour.
