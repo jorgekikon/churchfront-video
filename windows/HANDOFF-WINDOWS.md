@@ -265,7 +265,29 @@ Full plan, command formats and DB3 firmware findings: `windows/CX350-PTZ-NOTES.m
 - Not done: iris (#AXI, #D3) and other picture settings, manual focus speed, the pan/tilt head (composite
   camera), RTSP. The Mac app doesn't know panasonicHTTP and won't open a setup file that has it.
 
-## Idea, not started: powering devices on from the app (discussed 2026-11-23, undecided)
+## Canon cameras: waking from standby (2026-11-24, Windows only)
+After services the Canons are put in standby from Companion. The app now powers them back on.
+- Protocol, as in Bitfocus Companion's Canon PTZ module (not in Canon's own docs we have):
+  - `GET /-wvhttp-01-/standby.cgi?cmd=idle` wakes the camera; `cmd=standby` puts it to sleep. No session is needed.
+  - The state is `f.standby` in info.cgi: `idle`, `standby`, `switch_idle` or `switch_standby`.
+  - CanonLink reads `info.cgi?item=f.standby` every 10 s, and also on each full info read.
+  - If the camera answers 401, the wake is retried with the admin login saved in Setup.
+- What you see:
+  - An amber "⏻ Wake <camera>" or "⏻ Wake N cameras" button in the top bar, shown only while a camera is in standby.
+  - A "⏻ Wake" button on that camera's row in Setup → Cameras.
+  - A status line in Frame the shot.
+- For Claude: the `wake_cameras` tool, and `power` in `get_status`.
+- Nothing puts a camera into standby; Companion still does that.
+- Checked: smoke (7 checks) against the fake Canon, plus the real app's button clicked against the fake Canon.
+  Not yet tried on the real Canons.
+
+## Powering devices on (2026-11-24): Kasa plugs are a Claude Code plug-in, not part of the app
+- The user chose to keep smart-plug control out of the app. It's in `C:\claude-work\kasa-plugs`, a separate
+  repo containing a local marketplace "booth" and the plug-in `kasa-plugs` (an MCP server and a skill).
+- Installed in `%USERPROFILE%\.claude\settings.json`.
+- Tuya plugs and Companion buttons aren't done.
+
+### Earlier notes (2026-11-23)
 The switcher and the Panasonic camera are on Wi-Fi smart plugs: a mix of TP-Link Kasa and generic plugs run by
 the Tuya app. All are also in Alexa. Bitfocus Companion (on the Mac mini, which is sometimes off) already
 controls OBS, the Canons, the Panasonic, ProPresenter 7 and Lightkey.

@@ -22,7 +22,7 @@ public sealed class MainWindow : Window
     private readonly Button _opTab, _enTab;
     private readonly TextBlock _opText, _enText, _status, _cams;
     private readonly System.Windows.Shapes.Ellipse _dot = new() { Width = 8, Height = 8 };
-    private readonly T.LitButton _record, _stream;
+    private readonly T.LitButton _record, _stream, _wake;
     private bool _dirty = true;
     private long _lastRefresh;
     private AppView? _shownView;
@@ -47,8 +47,11 @@ public sealed class MainWindow : Window
         _record = new T.LitButton(() => Toggle(recording: true), 110, 30, 12);
         _stream = new T.LitButton(() => Toggle(recording: false), 110, 30, 12);
         _record.Button.Margin = new Thickness(0, 0, 8, 0); _stream.Button.Margin = new Thickness(0, 0, 8, 0);
+        // Shown only while a Canon camera is in standby (put there after services, from Companion).
+        _wake = new T.LitButton(WakeCameras, 150, 30, 12);
+        _wake.Button.Margin = new Thickness(0, 0, 8, 0);
         var gear = T.Button(T.Text("⚙", 16, null, T.InkMuted), () => B.Show(EngineerSection.Setup), T.Transparent, T.Transparent, 34, 30, 6, new Thickness(0), "Setup (Ctrl+,)");
-        var right = T.Row(0, _record.Button, _stream.Button, gear);
+        var right = T.Row(0, _wake.Button, _record.Button, _stream.Button, gear);
         right.VerticalAlignment = VerticalAlignment.Center;
         var bar = new DockPanel { Height = 64, Margin = new Thickness(20, 0, 16, 0) };
         DockPanel.SetDock(right, Dock.Right);
@@ -103,6 +106,23 @@ public sealed class MainWindow : Window
         RefreshAll();
     }
 
+    /// <summary>Wakes every camera in standby. Waking is harmless, so it doesn't ask first.</summary>
+    private static void WakeCameras()
+    {
+        var asleep = B.Ptz.Sleeping;
+        var problems = new List<string>();
+        var left = asleep.Count;
+        foreach (var c in asleep)
+        {
+            var name = c.Name;
+            B.Ptz.Wake(c.Id, why =>
+            {
+                if (why != null) problems.Add($"{name}: {why}");
+                if (--left == 0 && problems.Count > 0) Dialogs.Info("Some cameras didn't wake", string.Join("\n", problems));
+            });
+        }
+    }
+
     private void Toggle(bool recording)
     {
         var s = B.Atem.State;
@@ -136,6 +156,12 @@ public sealed class MainWindow : Window
         _stream.Button.Visibility = s.HasStreaming ? Visibility.Visible : Visibility.Collapsed;
         _record.Set(s.Recording ? "● Recording" : "● Record", null, s.Recording ? T.Program : null);
         _stream.Set(s.Streaming ? "● Streaming" : s.StreamConnecting ? "Connecting" : "● Stream", null, s.Streaming ? T.Program : s.StreamConnecting ? T.Warning : null);
+        var asleep = B.Ptz.Sleeping;
+        var waking = B.Ptz.Cameras.Any(B.Ptz.Waking);
+        _wake.Button.Visibility = asleep.Count > 0 || waking ? Visibility.Visible : Visibility.Collapsed;
+        _wake.Set(asleep.Count > 0 ? $"⏻ Wake {(asleep.Count == 1 ? asleep[0].Name : $"{asleep.Count} cameras")}" : "Waking up…", null, asleep.Count > 0 ? T.Warning : null,
+            asleep.Count > 0 ? $"In standby: {string.Join(", ", asleep.Select(c => c.Name))}. Click to power them on." : "The cameras are powering on.");
+        _wake.Button.IsEnabled = asleep.Count > 0;
 
         if (_shownView != view)
         {

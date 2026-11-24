@@ -168,6 +168,19 @@ try
     Check(r["error"] != null, "an unknown key button is refused");
     r = Tool("set_recording", new JsonObject());
     Check(r["error"]?.ToString().Contains("Nothing was changed") == true, "set_recording without on changes nothing");
+    // MARK: Canon standby (put there after services, from Companion) and waking it
+    Check(Wait(() => ptz.Power.GetValueOrDefault(canon.Id) == "idle") && OnMain(() => ptz.Sleeping.Count == 0), "reads a Canon's power state: awake");
+    r = Tool("wake_cameras");
+    Check(r["done"]?.ToString().Contains("No camera is in standby") == true, "wake_cameras with nothing asleep sends nothing");
+    using (var h = new HttpClient()) h.GetStringAsync("http://127.0.0.1:8091/-wvhttp-01-/standby.cgi?cmd=standby").Wait();   // as Companion does
+    Check(Wait(() => ptz.InStandby(canon) && ptz.Power[canon.Id] == "standby", 15), "sees the Canon go into standby");
+    Check(Tool("get_status")["cameras"]!.AsArray().Any(c => c!["name"]!.ToString() == "Canon" && c["power"]?.ToString() == "standby"), "get_status gives the power state");
+    r = Tool("wake_cameras");
+    Check(r["woken"]?.AsArray().Count == 1 && r["woken"]![0]!.ToString() == "Canon", "wake_cameras wakes every camera in standby");
+    Check(fakeLog.Any(l => l.Contains("standby.cgi?cmd=idle")), "it sends standby.cgi?cmd=idle");
+    Check(Wait(() => ptz.Power.GetValueOrDefault(canon.Id) == "idle", 8), "and reads the camera back awake");
+    r = Tool("wake_cameras", new JsonObject { ["cameras"] = new JsonArray("Center") });
+    Check(r["done"]?.ToString().Contains("isn't a Canon") == true || r["done"]?.ToString().Contains("None of those") == true, "a VISCA camera isn't sent a Canon wake");
     // MARK: Panasonic camcorder (AG-CX350, PTZ Control Protocol over HTTP)
     Check(PanasonicLinkInfo.Zoom(0) == "#Z50" && PanasonicLinkInfo.Zoom(1) == "#Z99" && PanasonicLinkInfo.Zoom(-1) == "#Z01"
           && PanasonicLinkInfo.Zoom(0.001) == "#Z51" && PanasonicLinkInfo.Zoom(-0.001) == "#Z49", "Panasonic zoom speeds: 01 to 99, 50 stops, the gentlest still moves");

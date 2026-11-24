@@ -236,7 +236,15 @@ internal sealed class SetupPage : LiveView
                 if (Dialogs.Confirm($"Delete {c.Name}?", "The camera and its saved shots are removed from Churchfront Video. The camera itself isn't changed.", "Delete", danger: true))
                     B.Ptz.Edit(l => l.RemoveAll(y => y.Id == id));
             }, danger: true);
-            col.Children.Add(T.Row(8, dot, name, host, proto, port, input, presets, del).Margin(0, 0, 0, 8));
+            // A Canon put in standby (after services) can be woken from here.
+            var wake = T.Small("⏻ Wake", () => B.Ptz.Wake(id, why => { if (why != null) Dialogs.Info($"{c.Name} didn't wake", why); }), "Power the camera on from standby");
+            Live(() =>
+            {
+                var cam = B.Ptz.Camera(id);
+                wake.Visibility = cam != null && (B.Ptz.InStandby(cam) || B.Ptz.Waking(cam)) ? Visibility.Visible : Visibility.Collapsed;
+                wake.IsEnabled = cam != null && B.Ptz.InStandby(cam);
+            });
+            col.Children.Add(T.Row(8, dot, name, host, proto, port, input, presets, del, wake).Margin(0, 0, 0, 8));
             if (c.Proto == VISCAProtocol.PanasonicHTTP)
             {
                 // The camcorder turns every command away (404) unless these are set on it.

@@ -51,6 +51,12 @@ internal interface IPTZLink
     /// <summary>The camera's own red tally light: on while its switcher input is on Live.
     /// Only the Panasonic camcorder link lights one; the others ignore it.</summary>
     void Tally(bool on) { }
+    /// <summary>The camera's power state as it reports it: "idle" (awake), "standby", or
+    /// "switch_idle" / "switch_standby" while changing. Only Canon cameras report one.</summary>
+    Action<string>? OnPower { get => null; set { } }
+    /// <summary>Wakes the camera from standby. Calls back with null when the camera took the
+    /// command, or why not.</summary>
+    void Wake(Action<string?> done) => done("This camera can't be woken from standby by Churchfront Video.");
 }
 
 // MARK: - VISCA
@@ -459,8 +465,11 @@ internal sealed class CanonLink : IPTZLink
     public Action<HashSet<int>>? OnExposurePresets { get; set; }
     public Action<CameraExposure>? OnExposure { get; set; }
     public Action<bool>? OnControl { get; set; }
+    public Action<string>? OnPower { get; set; }
     private bool _online;
     private void SetOnline(bool v) { if (v != _online) { _online = v; OnState?.Invoke(v); } }
+    private string? _power;
+    private void SetPower(string? v) { if (v != null && v != _power) { _power = v; OnPower?.Invoke(v); } }
     private bool _hasControl;
     private void SetControl(bool v) { if (v != _hasControl) { _hasControl = v; OnControl?.Invoke(v); } }
     private bool _claimRetry;
@@ -582,6 +591,49 @@ internal sealed class CanonLink : IPTZLink
         if (_session is not string s) { Open(); return; }
         Claim(s);
         if ((DateTime.UtcNow - _lastPresetRead).TotalSeconds > 60) ReadInfo();
+        else ReadPower();
+    }
+
+    /// <summary>Only the standby state (f.standby), not the whole 30 KB info page.</summary>
+    private void ReadPower() => Get("info.cgi?item=f.standby", text => { if (text != null) SetPower(Val(Parse(text), "f.standby")); });
+
+    /// <summary>Wakes the camera from standby, as Companion's Canon module does (standby.cgi
+    /// cmd=idle; cmd=standby puts it back). Needs no session. If the camera asks for a login,
+    /// the admin login saved in Setup is used. The state is read back over the next 20 seconds.</summary>
+    public void Wake(Action<string?> done)
+    {
+        if (_camera.Host.Length == 0) { done("The camera has no address."); return; }
+        var url = Base + "standby.cgi?cmd=idle";
+        var login = CameraLogin.Load();
+        Task.Run(async () =>
+        {
+            string? why = null;
+            try
+            {
+                using var r = await _http.GetAsync(url);
+                if (r.StatusCode == HttpStatusCode.Unauthorized)
+                {
+                    if (login == null) why = "The camera asked for a login. Save the cameras' admin login in Setup, under Cameras.";
+                    else
+                    {
+                        var creds = new CredentialCache();
+                        var nc = new NetworkCredential(login.User, login.Password);
+                        creds.Add(new Uri(Base), "Digest", nc); creds.Add(new Uri(Base), "Basic", nc);
+                        using var admin = new HttpClient(new HttpClientHandler { Credentials = creds, UseProxy = false }) { Timeout = TimeSpan.FromSeconds(5) };
+                        using var r2 = await admin.GetAsync(url);
+                        if (r2.StatusCode == HttpStatusCode.Unauthorized) why = "The camera turned down the saved login. Check the user name and password in Setup.";
+                        else if (!r2.IsSuccessStatusCode) why = $"The camera said HTTP {(int)r2.StatusCode}.";
+                    }
+                }
+                else if (!r.IsSuccessStatusCode) why = $"The camera said HTTP {(int)r.StatusCode}.";
+            }
+            catch { why = "The camera didn't answer."; }
+            _queue.Post(() =>
+            {
+                if (why == null) foreach (var t in new[] { 1.0, 4, 10, 20 }) _queue.After(t, () => { if (!_stopped) ReadPower(); });
+                done(why);
+            });
+        });
     }
 
     private void ReadInfo()
@@ -592,6 +644,7 @@ internal sealed class CanonLink : IPTZLink
             if (text == null) return;
             var kv = Parse(text);
             if (Val(kv, "s.hardware") is string model) OnModel?.Invoke(model);
+            SetPower(Val(kv, "f.standby"));
             var names = new Dictionary<int, string>();
             var exposureOnly = new HashSet<int>();
             foreach (var (k, v) in kv)
@@ -1077,6 +1130,27 @@ public sealed class PTZController
     public Dictionary<Guid, HashSet<int>> ExposurePresets { get; } = new();
     /// <summary>Cameras this app currently holds control of.</summary>
     public HashSet<Guid> Controlled { get; } = new();
+    /// <summary>Each Canon camera's power state as it reports it ("idle", "standby", "switch_idle", "switch_standby").</summary>
+    public Dictionary<Guid, string> Power { get; } = new();
+
+    public bool InStandby(PTZCamera c) => Power.TryGetValue(c.Id, out var p) && p is "standby" or "switch_standby";
+    public bool Waking(PTZCamera c) => Power.TryGetValue(c.Id, out var p) && p == "switch_idle";
+    /// <summary>Cameras that are asleep (or going to sleep) and can be woken.</summary>
+    public List<PTZCamera> Sleeping => _cameras.Where(c => c.Host.Length > 0 && InStandby(c)).ToList();
+
+    /// <summary>Wakes a camera from standby (Canon only). Calls back on main with null when the camera took it.</summary>
+    public void Wake(Guid id, Action<string?>? done = null)
+    {
+        _queue.Post(() =>
+        {
+            if (!_links.TryGetValue(id, out var l)) { MainThread.Post(() => done?.Invoke("That camera isn't set up.")); return; }
+            l.Wake(why => MainThread.Post(() =>
+            {
+                if (why == null) { Power[id] = "switch_idle"; Notify(); }
+                done?.Invoke(why);
+            }));
+        });
+    }
 
     /// <summary>Raised on the main thread whenever anything above changes.</summary>
     public event Action? Changed;
@@ -1121,6 +1195,7 @@ public sealed class PTZController
                 l.OnExposure = e => MainThread.Post(() => { Exposure[id] = e; Notify(); });
                 l.OnControl = on => MainThread.Post(() => { if (on) Controlled.Add(id); else Controlled.Remove(id); Notify(); });
                 l.OnExposurePresets = s => MainThread.Post(() => { ExposurePresets[id] = s; Notify(); });
+                l.OnPower = v => MainThread.Post(() => { Power[id] = v; Notify(); });
                 _links[id] = l;
                 l.Start();
             }

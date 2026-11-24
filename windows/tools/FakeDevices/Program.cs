@@ -408,6 +408,7 @@ static class FakeCanon
 {
     static int _pan, _tilt, _zoom = 5000, _gain = 60, _shutter = 60, _iris = 400, _kelvin = 5600;
     static string _wb = "auto";
+    static string _power = "idle";
     static readonly Dictionary<int, string> Presets = new() { [1] = "Pulpit", [2] = "Wide", [3] = "Exposure" };
     static byte[]? _frame;
 
@@ -603,9 +604,27 @@ static class FakeCanon
                 if (q.TryGetValue("wb.kelvin", out var k)) _kelvin = int.Parse(k);
                 body = "";
             }
+            else if (path.Contains("standby.cgi"))
+            {
+                // Power, as Companion's Canon module sends it: cmd=standby, or cmd=idle to wake.
+                // Changing takes 1.5 s (switch_idle / switch_standby on the way).
+                var cmd = q.GetValueOrDefault("cmd");
+                if (cmd is "idle" or "standby")
+                {
+                    lock (Move) _power = cmd == "idle" ? "switch_idle" : "switch_standby";
+                    _ = Task.Delay(1500).ContinueWith(_ => { lock (Move) _power = cmd; });
+                    body = "";
+                }
+                else { await s.WriteAsync("HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"u8.ToArray()); return; }
+            }
+            else if (path.Contains("info.cgi") && q.GetValueOrDefault("item") == "f.standby")
+            {
+                lock (Move) body = $"f.standby:={_power}\n";
+            }
             else if (path.Contains("info.cgi"))
             {
                 var sb = new StringBuilder();
+                lock (Move) sb.Append($"f.standby:={_power}\n");
                 sb.Append($"s.hardware:=CR-N500 (fake)\nc.1.name.utf8:=Fake Canon\nc.1.pan:={_pan}\nc.1.tilt:={_tilt}\nc.1.zoom:={_zoom}\n");
                 if (Stage.Count > 0) sb.Append($"c.1.zoom.limit.min:={ZoomMin}\nc.1.zoom.limit.max:={ZoomMax}\nc.1.pan.limit.min:={-PanMax}\nc.1.pan.limit.max:={PanMax}\nc.1.tilt.limit.min:={-TiltMax}\nc.1.tilt.limit.max:={TiltMax}\n");
                 sb.Append($"c.1.exp:=manual\nc.1.me.gain:={_gain}\nc.1.me.gain.mode:=manual\nc.1.me.shutter:={_shutter}\nc.1.me.shutter.mode:=speed\nc.1.me.diaphragm:={_iris}\nc.1.me.diaphragm.mode:=manual\n");

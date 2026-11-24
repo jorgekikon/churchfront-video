@@ -83,6 +83,8 @@ public static class ControlTools
         Tool("camera_zoom", "Zoom a camera for a short time, then stop. Speed -1 (wide) to 1 (tight).",
             P(("camera", CameraP()), ("speed", Num("-1 (wide) to 1 (tight).")), ("duration_ms", Int("50 to 5000 ms. Default 500.")), ("allow_live", AllowLive())), "speed"),
         Tool("camera_stop", "Stop any pan, tilt and zoom on a camera.", P(("camera", CameraP()))),
+        Tool("wake_cameras", "Power Canon cameras on from standby (after services they're put in standby, for example from Companion). get_status gives each camera's power: on, standby, waking up. Leave out cameras to wake every camera in standby. A camera takes several seconds to wake; Churchfront Video reads its state back.",
+            P(("cameras", AnyList("Cameras to wake (name, IP or input). Leave out for every camera in standby.")))),
         Tool("camera_focus", "Focus a camera: once (one-shot autofocus, like the Focus button), auto, or manual.",
             P(("camera", CameraP()), ("mode", Choice("Focus mode.", "once", "auto", "manual")), ("allow_live", AllowLive())), "mode"),
         Tool("get_routing", "Video routing in plain words: what each M/E mix is for and shows, every aux output with the screen it feeds, its wiring note and the picture it gets now, and the volunteer routing buttons (lit or not)."),
@@ -248,6 +250,29 @@ public static class ControlTools
                 var ms = ClampMs(a["duration_ms"]);
                 Ptz.Zoom(Dbl(a["speed"]), c.Id);
                 MainThread.After(ms / 1000.0, () => { Ptz.Zoom(0, c.Id); done(Ok($"Zoomed {c.Name} for {ms} ms", Warn(c))); });
+                break;
+            }
+            case "wake_cameras":
+            {
+                List<PTZCamera> list;
+                if (a["cameras"] is JsonArray named && named.Count > 0)
+                    list = named.Select(n => Cam(new JsonObject { ["camera"] = n?.DeepClone() }, changing: false)).DistinctBy(c => c.Id).ToList();
+                else list = Ptz.Sleeping;
+                list = list.Where(c => c.Proto == VISCAProtocol.CanonXC).ToList();
+                if (list.Count == 0) { done(Ok(a["cameras"] is JsonArray ? "None of those is a Canon camera, so there's nothing to wake." : "No camera is in standby.")); break; }
+                var woke = new JsonArray(); var failed = new JsonObject(); var left = list.Count;
+                foreach (var c in list)
+                {
+                    var cam = c;
+                    Ptz.Wake(cam.Id, why =>
+                    {
+                        if (why == null) woke.Add(cam.Name); else failed[cam.Name] = why;
+                        if (--left > 0) return;
+                        var r = new JsonObject { ["woken"] = woke };
+                        if (failed.Count > 0) r["failed"] = failed;
+                        done(failed.Count == list.Count ? new JsonObject { ["error"] = "No camera woke.", ["failed"] = failed } : Ok($"Sent power on to {woke.Count} camera{(woke.Count == 1 ? "" : "s")}; give them several seconds", r));
+                    });
+                }
                 break;
             }
             case "camera_stop":
@@ -868,6 +893,7 @@ public static class ControlTools
                 ["answering"] = Ptz.Online.Contains(c.Id), ["has_control"] = Ptz.HasControl(c), ["model"] = Ptz.Models.TryGetValue(c.Id, out var md) ? md : "",
                 ["on_live"] = c.AtemInput is int li && s.OnLive(li), ["on_next"] = c.AtemInput is int ni && s.OnNext(ni),
                 ["shots"] = shots, ["camera_presets"] = presets, ["tracking"] = AutoTracker.Shared.Report(c.Id),
+                ["power"] = Ptz.Power.TryGetValue(c.Id, out var pw) ? (pw == "idle" ? "on" : pw.Replace("switch_idle", "waking up").Replace("switch_standby", "going to standby")) : null,
             };
             if (x != null)
             {
