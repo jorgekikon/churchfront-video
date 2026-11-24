@@ -9,6 +9,32 @@ editor and NDI pictures. Every feature of the Mac app is now on Windows; what's 
 on real hardware and packaging. In step with the Mac's 0.1.2 (upstream main 9892525, 2026-11-22):
 see "Synced from the Mac 0.1.2" below.
 
+## Where things stand (end of 2026-11-24)
+- Everything is committed and on the fork's windows-port branch (last: 8dc37c5). windows\dist on the booth
+  PC was built from 8dc37c5.
+- Used on the real booth hardware (ATEM Television Studio HD, two Canon PTZs, Panasonic CX350):
+  - the switcher online
+  - Canon Wake (from the top bar) and Standby (from Setup → Cameras)
+  - the Engineer PIN; the user has set a real one
+- Built today, checked against FakeDevices and in test copies of the app:
+  - Canon wake and standby
+  - the Engineer PIN, and Engineer opening on Status (with the version and build date)
+  - the Operator guided tour (opens by itself on a first run)
+  - Spanish, with the 🌐 picker
+  - larger Take it live buttons
+  - dark dropdowns and the full-size icon
+  See the sections below.
+- Open:
+  - a native Spanish speaker's review of Lang/es.json
+  - Panasonic CX350 iris and picture settings, and the pan/tilt head (CX350-PTZ-NOTES.md)
+  - the Tuya smart plugs
+  - the real-hardware test list below (tracking, stage scan, routing drag, NDI) not yet run end to end
+  - test NDI sources should move to a private NDI group
+  - no installer or code signing
+- Separate from this repo: Kasa smart-plug control is a Claude Code plug-in in C:\claude-work\kasa-plugs (its
+  own git repo, no remote). It's installed in the user's Claude settings, and all 16 Kasa plugs were
+  switched on with it on 2026-11-24. Which plug feeds which device isn't known yet.
+
 ## Next: first tests on real hardware (planned 2026-11-19)
 Where things stood at the end of 2026-11-18: everything committed and on the fork's windows-port
 branch except this plan; windows\dist rebuilt with all of it (run that build, not the Debug one).
@@ -285,6 +311,21 @@ After services the Canons are put in standby from Companion. The app now powers 
   - Real Canons in standby turn down open.cgi but still answer info.cgi, so the app reads f.standby without a session.
 - Checked: smoke tests against the fake Canon, the app's buttons clicked against it, and both Wake and Standby
   used on the real Canons on 2026-11-24.
+
+## Look and feel (2026-11-24, Windows only)
+- Dropdowns and right-click menus:
+  - `T.InstallStyles` (Theme.cs, called once in Program.cs) sets one app-wide dark style for ContextMenu,
+    MenuItem and Separator, covering every menu wherever it's made.
+  - There's no white icon gutter; a ✓ appears only on checkable items; the panel scrolls when long.
+- App icon:
+  - `AppIcon.ico` is made from `Resources/AppIcon-1024.png` with the Mac margin (about 10% a side) trimmed,
+    in 8 sizes (16, 20, 24, 32, 40, 48, 64, 256). The Mac icon is unchanged.
+  - The window loads it as a `BitmapFrame`, which keeps every size. A `BitmapImage` takes only the first
+    size, which left the taskbar icon tiny.
+  - A version with only the camera mark was tried and rejected: the light mark vanishes on the white title bar.
+- Take it live:
+  - Fade/Cut and Black/graphics are two columns that grow up to 172 px each.
+  - Their words shrink to fit on a narrow window. LitButton titles shrink too, instead of being cut off.
 
 ## Languages: English and Spanish (2026-11-24, Windows only)
 - The 🌐 button in the top bar picks the language for this computer's screens. It's saved as `language` in
