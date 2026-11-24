@@ -83,7 +83,11 @@ public static class Program
         {
             ControlServer.Shared.Stop();
             tracker.StopAll();
+            NdiHub.StopAll();
             booth.Ptz.Shutdown();
+            // The NDI pictures close their receivers within a quarter second (Shutdown above
+            // already took longer), so senders see this app leave.
+            Ndi.WaitReceiversClosed(1000);
         };
         app.MainWindow = win;
         win.Show();
@@ -117,8 +121,23 @@ public static class Program
             };
             kt.Start();
         }
-        return app.Run();
+        var code = app.Run();
+        // Everything is stopped and saved by now: the setup and prefs are written as they change
+        // and when the window closes, and the cameras were told to stop above. Ending the process
+        // here, rather than returning, skips Windows unloading the native libraries (NDI, ONNX
+        // Runtime, DirectML) one by one. After a day and a half open, one of those hung the app
+        // at that step: window gone, the process left behind with one thread until it was killed.
+        single.ReleaseMutex();
+        single.Dispose();
+        Console.Out.Flush();
+        TerminateProcess(GetCurrentProcess(), (uint)code);
+        return code;
     }
+
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern IntPtr GetCurrentProcess();
+    [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+    private static extern bool TerminateProcess(IntPtr process, uint exitCode);
 
     /// <summary>Saves what the window shows as a PNG (works with the screen locked). False if it couldn't.</summary>
     public static bool SaveWindow(Window win, string path)

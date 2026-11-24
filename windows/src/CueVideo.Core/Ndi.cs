@@ -137,9 +137,22 @@ public static class Ndi
         try
         {
             var rc = new RecvCreateV3 { Source = new Source { Name = name }, ColorFormat = 0 /* BGRX, or BGRA with alpha */, Bandwidth = lowest ? 0 : 100, RecvName = me };
-            return _recvCreate!(ref rc);
+            var r = _recvCreate!(ref rc);
+            if (r != IntPtr.Zero) Interlocked.Increment(ref _openReceivers);
+            return r;
         }
         finally { Marshal.FreeCoTaskMem(name); Marshal.FreeCoTaskMem(me); }
+    }
+
+    private static int _openReceivers;
+
+    /// <summary>On quit: waits up to `ms` for every receiver to be closed, so none is still
+    /// talking to a sender when the app ends. True when they all were.</summary>
+    public static bool WaitReceiversClosed(int ms)
+    {
+        var until = Environment.TickCount64 + ms;
+        while (Volatile.Read(ref _openReceivers) > 0 && Environment.TickCount64 < until) Thread.Sleep(20);
+        return Volatile.Read(ref _openReceivers) == 0;
     }
 
     /// <summary>Waits up to `ms` for a video frame. True with a frame to release with RecvFree.</summary>
@@ -151,7 +164,12 @@ public static class Ndi
     }
 
     public static void RecvFree(IntPtr recv, ref VideoFrameV2 frame) { if (recv != IntPtr.Zero) _recvFree?.Invoke(recv, ref frame); }
-    public static void RecvClose(IntPtr recv) { if (recv != IntPtr.Zero) _recvDestroy?.Invoke(recv); }
+    public static void RecvClose(IntPtr recv)
+    {
+        if (recv == IntPtr.Zero) return;
+        _recvDestroy?.Invoke(recv);
+        Interlocked.Decrement(ref _openReceivers);
+    }
 
     /// <summary>An NDI sender (FakeDevices uses this to stand in for cameras and graphics).</summary>
     public static IntPtr SendOpen(string name)
@@ -374,6 +392,10 @@ public static class NdiHub
         if (f.Users > 1) return;
         MainThread.After(5, () => { if (Feeds.TryGetValue(source, out var g) && g.Users == 0) g.Feed.Stop(); });
     }
+
+    /// <summary>On quit: stops every feed. Each closes its receiver within a quarter second
+    /// (see Ndi.WaitReceiversClosed).</summary>
+    public static void StopAll() { foreach (var f in Feeds.Values) f.Feed.Stop(); }
 
     /// <summary>For status: whether a source's picture is coming in (null when nothing is showing it).</summary>
     public static bool? IsLive(string source) => Feeds.TryGetValue(source, out var f) && f.Users > 0 ? f.Feed.IsLive : null;

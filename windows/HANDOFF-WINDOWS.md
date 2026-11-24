@@ -216,6 +216,11 @@ Upstream main gained three changes on 2026-11-22 (2f37b92, cd72e1d, a59fb4e); al
   patch bay names.
 - Group headings written in letter-spaced capitals (T.Caps) read to screen readers letter by letter
   ("S p a r e  o u t p u t s"), across the app.
+- Quitting after a long run (2026-11-23): the 0.1.1 app, open 31 hours on the booth PC, closed its window and
+  saved, then hung with one thread left (Windows unloading the native libraries) until killed. Not reproduced
+  in short runs. Now the app stops NDI's receivers on quit (NdiHub.StopAll, Ndi.WaitReceiversClosed) and
+  ends its process itself once everything is saved (Program.Main, TerminateProcess), skipping that unloading.
+  Short runs exit in 0.5 s; check it after a long run (a Sunday) that closing really ends the process.
 - No installer or code signing: SmartScreen will warn on first run of the unsigned exe.
 - Windows Firewall will ask on first run (UDP to the switcher/cameras); allow on private networks.
 
