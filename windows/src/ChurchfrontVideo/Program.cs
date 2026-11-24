@@ -66,6 +66,8 @@ public static class Program
                 MainThread.Post(() => { tracker.Detector = d; tracker.Unavailable = why; Detector = d; });
             });
 
+        // The language of this computer's screens (CUEVIDEO_LANG for a self-test).
+        L.Use(Environment.GetEnvironmentVariable("CUEVIDEO_LANG") is string lang && lang.Length > 0 ? lang : booth.Prefs.Language);
         var win = new MainWindow();
         ControlTools.ShowWindow = w => win.ShowView(w);
         booth.BringToFront = () => win.ShowView("main");

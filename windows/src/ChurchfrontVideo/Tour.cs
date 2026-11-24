@@ -86,10 +86,7 @@ public sealed class Tour
         new("Is it connected?",
             "Online in green means the switcher is connected and listening. If it says Offline or Connecting, nothing you press reaches it; let the person in charge know.",
             new[] { "connection" }),
-        new("Recording, streaming and power",
-            "Record and Stream start and stop the switcher's recording and the livestream. Each one asks before it changes anything.\n\n" +
-            "Before a service, a Wake button may appear here when cameras are in standby: click it to power them on. The small pictures show Live and Next while you're on another page.",
-            new[] { "topright" }),
+        TopRight(),
         new("Engineer",
             "Engineer has Status (connections and the app's version) and the setup pages for the person in charge. Most of those pages need a PIN; Status is always open. Operator brings you back here.",
             new[] { "views" }),
@@ -99,6 +96,32 @@ public sealed class Tour
             "You can watch this tour again at any time with the Tour button at the top.",
             new[] { "tour" }),
     };
+
+    /// <summary>The top-right corner, described as this booth has it. Record and Stream show only
+    /// for an ATEM that records or streams by itself (ATEM Mini Pro and Extreme, Constellation HD, ...);
+    /// many, such as the Television Studio HD, don't, and the stream is run elsewhere.</summary>
+    private static Step TopRight()
+    {
+        var s = B.Atem.State;
+        var model = s.Product.Length > 0 ? s.Product : "your switcher";
+        var parts = new List<string>();
+        string title;
+        if (s.HasRecording || s.HasStreaming)
+        {
+            var which = s.HasRecording && s.HasStreaming ? "Record and Stream start and stop the switcher's own recording and livestream"
+                : s.HasRecording ? "Record starts and stops the switcher's own recording" : "Stream starts and stops the switcher's own livestream";
+            parts.Add(L.Tr($"{which}. Each asks before it changes anything."));
+            title = "Recording, streaming and power";
+        }
+        else
+        {
+            parts.Add(L.Tr($"The {model} doesn't record or stream by itself, so there are no Record or Stream buttons here. The livestream and recording are run outside this app, for example in OBS."));
+            title = "Camera power and setup";
+        }
+        parts.Add(L.Tr("When cameras have been put in standby (after a service), a Wake button appears up here before the next one: click it to power them all on."));
+        parts.Add(L.Tr("The ⚙ opens Setup, for the person in charge (it may ask for the PIN). While you're on another page, small pictures here show Live and Next."));
+        return new Step(L.Tr(title), string.Join("\n\n", parts), new[] { "topright" });
+    }
 
     // MARK: The overlay
 
@@ -185,11 +208,11 @@ public sealed class Tour
         _at = Math.Clamp(i, 0, _steps.Count - 1);
         var s = _steps[_at];
         var shown = _steps.Where(x => !x.SkipIfMissing || Present(x)).ToList();
-        _count.Text = $"STEP {shown.IndexOf(s) + 1} OF {shown.Count}";
-        _title.Text = s.Title;
-        _body.Text = s.Body;
+        _count.Text = L.Tr($"STEP {shown.IndexOf(s) + 1} OF {shown.Count}");
+        _title.Text = L.Tr(s.Title);
+        _body.Text = L.Tr(s.Body);
         _back.Visibility = _at == 0 ? Visibility.Collapsed : Visibility.Visible;
-        _nextText.Text = _at == 0 ? "Start the tour" : _at == _steps.Count - 1 ? "Finish" : "Next";
+        _nextText.Text = L.Tr(_at == 0 ? "Start the tour" : _at == _steps.Count - 1 ? "Finish" : "Next");
         Place();
     }
 

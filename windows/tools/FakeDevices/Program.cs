@@ -17,10 +17,12 @@ using System.Windows.Media.Imaging;
 //   --ndi              NDI sources "Stage camera" (what the fake Canon sees) and "Lower third" (alpha).
 //   --panasonic        a Panasonic AG-CX350's PTZ Control Protocol (HTTP) on 127.0.0.1:8092, and on :8093 one
 //                      with control off (NDI|HX and IP REMOTE both off), which answers 404 to everything.
+//   --no-stream        the switcher has no recording or streaming of its own (like a Television Studio HD).
 
 var port = args.FirstOrDefault(a => int.TryParse(a, out _)) is string p ? int.Parse(p) : 9910;
 for (int i = 0; i + 1 < args.Length; i++) if (args[i] == "--picture") FakeCanon.Stage.Add(args[i + 1]);
 if (args.Contains("--cams")) FakeCams.Start();
+Switcher.NoStream = args.Contains("--no-stream");
 if (args.Contains("--panasonic")) { FakePanasonic.Start(8092, on: true); FakePanasonic.Start(8093, on: false); }
 if (args.Contains("--ndi")) FakeNdi.Start();
 if (args.Contains("--canon") || args.Contains("--ndi")) FakeCanon.Start(8091);
@@ -120,8 +122,10 @@ sealed class Switcher
         return Cmd("MPrp", Cat(U16(i), _macros.ContainsKey(i) ? 1 : 0, 0, U16(n.Length), U16(0), n, new byte[(4 - n.Length % 4) % 4]));
     });
     IEnumerable<byte[]> CMrun() => new[] { Cmd("MRPr", Cat(_macro != null ? 1 : 0, 0, U16(_macro ?? 0xFFFF))) };
-    IEnumerable<byte[]> CStream() => new[] { Cmd("StRS", Cat(U16(_stream), U16(0))) };
-    IEnumerable<byte[]> CRecord() => new[] { Cmd("RTMS", Cat(U16(_record), U16(0), 0, 0, 0, 0)) };
+    /// <summary>--no-stream: a switcher with no recording or streaming of its own (such as a Television Studio HD).</summary>
+    public static bool NoStream;
+    IEnumerable<byte[]> CStream() => NoStream ? Array.Empty<byte[]>() : new[] { Cmd("StRS", Cat(U16(_stream), U16(0))) };
+    IEnumerable<byte[]> CRecord() => NoStream ? Array.Empty<byte[]>() : new[] { Cmd("RTMS", Cat(U16(_record), U16(0), 0, 0, 0, 0)) };
     IEnumerable<byte[]> CTally()
     {
         var ids = Inputs.Select(i => i.Id).Where(i => i < 10000).OrderBy(i => i).ToList();

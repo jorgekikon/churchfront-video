@@ -165,7 +165,7 @@ public static class Dialogs
     {
         var win = new Window
         {
-            Title = title, Width = w, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            Title = L.Tr(title), Width = w, SizeToContent = SizeToContent.Height, WindowStartupLocation = WindowStartupLocation.CenterOwner,
             ResizeMode = ResizeMode.NoResize, Background = T.Surface, Foreground = T.Ink, ShowInTaskbar = false, FontFamily = T.Sans,
             Owner = Application.Current?.MainWindow,
         };

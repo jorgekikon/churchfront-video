@@ -332,7 +332,7 @@ internal sealed class RoutingPage : LiveView
         Live(() =>
         {
             var (s, mixed) = RoutingEdit.Now(sc, S);
-            showing.Text = mixed ? "← Mixed" : s is int v ? "← " + (RoutingEdit.IsMix(v) && v % 10 == 0 ? ShortMix((v - 10000) / 10 - 1) : Store.RouteLabel(v, S)) : "";
+            showing.Text = mixed ? "← " + L.Tr("Mixed") : s is int v ? "← " + (RoutingEdit.IsMix(v) && v % 10 == 0 ? ShortMix((v - 10000) / 10 - 1) : Store.RouteLabel(v, S)) : "";
         });
         var name = T.Text(sc.Name, pic ? 18 : 15, FontWeights.SemiBold, named ? T.Ink : T.InkMuted);
         name.TextTrimming = TextTrimming.CharacterEllipsis;
@@ -522,8 +522,8 @@ internal sealed class RoutingPage : LiveView
         bool? volunteer = sc.ForVolunteers, pinned = Store.PinnedScreens.Any(p => p.Id == sc.Id);
         if (named)
         {
-            col.Children.Add(T.Check("Preview in the top bar", pinned == true, v => pinned = v).With(c => c.ToolTip = "Show a small live picture of this in the bar across the top of the app (up to four)."));
-            col.Children.Add(T.Check("Show to operators", volunteer == true, v => volunteer = v).With(c => c.ToolTip = "Turn this off for outputs feeding an encoder, a recorder or the patch bay. They then sit, locked, under Encoders and feeds, and Claude only changes them when told to."));
+            col.Children.Add(T.Check("Preview in the top bar", pinned == true, v => pinned = v).With(c => c.ToolTip = L.Tr("Show a small live picture of this in the bar across the top of the app (up to four).")));
+            col.Children.Add(T.Check("Show to operators", volunteer == true, v => volunteer = v).With(c => c.ToolTip = L.Tr("Turn this off for outputs feeding an encoder, a recorder or the patch bay. They then sit, locked, under Encoders and feeds, and Claude only changes them when told to.")));
         }
         col.Children.Add(problem);
         void Save()

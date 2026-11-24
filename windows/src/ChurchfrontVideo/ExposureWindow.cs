@@ -29,7 +29,7 @@ public sealed class ExposureWindow : Window
     {
         _camera = camera;
         var cam = Booth.Shared.Ptz.Camera(camera);
-        Title = $"Exposure: {cam?.Name}";
+        Title = L.Tr($"Exposure: {cam?.Name}");
         Width = 460; SizeToContent = SizeToContent.Height;
         ResizeMode = ResizeMode.NoResize; ShowInTaskbar = false; Background = T.Surface; FontFamily = T.Sans;
         Owner = Application.Current.MainWindow; WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -140,7 +140,7 @@ public sealed class ExposureWindow : Window
             {
                 if (!Ptz.Exposure.TryGetValue(_id, out var x)) return;
                 val.Text = text(x);
-                tag.Text = auto(x) ? "AUTO" : "";
+                tag.Text = auto(x) ? L.Tr("AUTO") : "";
             });
             return T.Row(8, name, darker, val, brighter, tag);
         }

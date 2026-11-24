@@ -119,14 +119,14 @@ public sealed class ShotDeckView : LiveView
             {
                 bool live = OnLive(cam), next = OnNext(cam), open = Shown?.Id == cam.Id;
                 badge.Visibility = live || next ? Visibility.Visible : Visibility.Collapsed;
-                badgeText.Text = live ? "LIVE" : "NEXT";
+                badgeText.Text = L.Tr(live ? "LIVE" : "NEXT");
                 badge.Background = live ? T.Program : T.Preview;
                 badgeText.Foreground = live ? Brushes.White : T.OnAction;
                 name.Foreground = open ? T.Ink : T.InkMuted;
                 b.Background = open ? T.SurfaceRaised : T.SurfaceSunken;
                 b.BorderBrush = live ? T.Program : next ? T.Preview : T.Line;
                 b.BorderThickness = new Thickness(open && (live || next) ? 2 : 1);
-                b.ToolTip = live ? $"{cam.Name} is on Live. Show its shots (they ask before moving it)." : $"Put {cam.Name} on Next";
+                b.ToolTip = L.Tr(live ? $"{cam.Name} is on Live. Show its shots (they ask before moving it)." : $"Put {cam.Name} on Next");
             });
             row.Children.Add(b);
         }
@@ -200,7 +200,7 @@ public sealed class ShotDeckView : LiveView
         var tile = new Border
         {
             CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Child = g, Cursor = Cursors.Hand,
-            RenderTransform = new TranslateTransform(), ToolTip = canDrag ? $"Click (or press {letter}) to send the camera to this shot. Hold it, then drag, to change its place." : $"Click (or press {letter}) to send the camera to this shot",
+            RenderTransform = new TranslateTransform(), ToolTip = L.Tr(canDrag ? $"Click (or press {letter}) to send the camera to this shot. Hold it, then drag, to change its place." : $"Click (or press {letter}) to send the camera to this shot"),
         };
         var lifted = false;
         Live(() =>

@@ -207,6 +207,20 @@ try
         try { File.Delete(lockFile); } catch { }
     }
 
+    // MARK: Languages (Spanish is built in; English is the code itself)
+    {
+        Check(L.Available.Any(l => l.Code == "es" && l.Name == "Español") && L.Available[0].Code == "en", "English and Español are offered, English first");
+        L.Use("es");
+        Check(L.Code == "es" && L.Tr("Track") == "Seguir" && L.Tr("FADE") == "FUNDIDO", "translates exact texts");
+        Check(L.Tr("Frame Left PTZ") == "Encuadrar Left PTZ" && L.Tr("STEP 3 OF 16") == "PASO 3 DE 16", "fills names and numbers into patterns");
+        Check(L.Tr("⏻ Wake 2 cameras") == "⏻ Encender 2 cámaras" && L.Tr("Switcher: online (10.0.0.1)") == "Mezclador: en línea (10.0.0.1)", "translates what a pattern matched, too");
+        Check(L.Tr("Center Canon") == "Center Canon" && L.Tr("Something new nobody translated") == "Something new nobody translated", "names and untranslated texts stay as they are");
+        Check(L.Tr("  Track\n") == "  Seguir\n", "keeps the spaces around a text");
+        L.Use("xx");
+        Check(L.Code == "en" && L.Tr("Track") == "Track", "an unknown language means English");
+        L.Use("en");
+    }
+
     // MARK: First run: no setup file before → the Operator tour opens (a throwaway folder and booth)
     {
         var dir = Path.Combine(Path.GetTempPath(), $"cv-first-{Guid.NewGuid():N}");

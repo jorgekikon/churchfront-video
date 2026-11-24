@@ -86,7 +86,7 @@ public sealed class EngineerView : Grid
             b.Background = on ? T.Accent : T.Transparent;
             t1.Foreground = on ? T.OnAction : T.Ink;
             t2.Foreground = on ? T.OnAction : T.InkMuted;
-            t1.Text = (locked && EngineerLock.IsLockable(sec) ? "🔒 " : "") + sec.Title();
+            t1.Text = (locked && EngineerLock.IsLockable(sec) ? "🔒 " : "") + L.Tr(sec.Title());
         }
         // A locked page shows the PIN pad instead, whichever way it was opened (sidebar,
         // shortcut, the gear, or Claude's show_window).
@@ -227,7 +227,7 @@ internal sealed class ScanPage : LiveView
             {
                 var why = Scan.Blocked(cam);
                 dot.Fill = why == null ? T.Success : T.LineStrong;
-                what.Text = why == null ? "Will go wide and come back" : $"Left out: {why}";
+                what.Text = L.Tr(why == null ? "Will go wide and come back" : $"Left out: {why}");
                 what.Foreground = why == null ? T.InkMuted : T.Warning;
             });
             var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
@@ -255,14 +255,14 @@ internal sealed class ScanPage : LiveView
         Live(() =>
         {
             var ready = Cameras.Count(c => Scan.Blocked(c) == null);
-            goText.Text = Scan.Running ? "Scanning…" : Scan.People.Count == 0 ? "Scan the stage" : "Scan again";
+            goText.Text = L.Tr(Scan.Running ? "Scanning…" : Scan.People.Count == 0 ? "Scan the stage" : "Scan again");
             go.IsEnabled = !Scan.Running && ready > 0 && Scan.Unavailable == null;
             go.Opacity = go.IsEnabled ? 1 : 0.5;
             (state.Text, state.Foreground) = Scan.Running ? (Scan.Progress, T.InkMuted)
                 : Scan.Unavailable is string u ? (u, T.Warning)
                 : ready == 0 ? ("No camera is free to scan right now.", T.Warning)
                 : ($"{ready} camera{(ready == 1 ? "" : "s")} will move.", T.InkSubtle);
-            notes.Text = string.Join("\n", Scan.Notes);
+            notes.Text = string.Join("\n", Scan.Notes.Select(L.Tr));
             notes.Visibility = Scan.Notes.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         });
         var top = new Grid { Margin = new Thickness(0, 0, 0, 14) };
@@ -342,14 +342,14 @@ internal sealed class ScanPage : LiveView
         {
             var why = Scan.Blocked(cam);
             tryIt.IsEnabled = !Scan.Running && why == null;
-            tryIt.ToolTip = why != null ? $"{cam.Name} can't move now: {why}." : $"Send {cam.Name} to this shot to check it";
+            tryIt.ToolTip = L.Tr(why != null ? $"{cam.Name} can't move now: {why}." : $"Send {cam.Name} to this shot to check it");
         });
         var bottom = T.Row(6, tryIt);
         if (p.Rough)
             bottom.Children.Add(T.Text("size is a guess", 10, null, T.Warning).With(t =>
             {
                 t.VerticalAlignment = VerticalAlignment.Center;
-                t.ToolTip = "Only this person's outline was found, not their face and shoulders, so the shot size is a guess. Try the shot, and adjust it if needed.";
+                t.ToolTip = L.Tr("Only this person's outline was found, not their face and shoulders, so the shot size is a guess. Try the shot, and adjust it if needed.");
             }));
         var card = T.Column(6, new Border { Child = pic, BorderBrush = T.Line, BorderThickness = new Thickness(1) }, label, bottom);
         card.Width = 160;
@@ -428,7 +428,7 @@ internal sealed class SwitcherPage : LiveView
             rate.Text = $"{f / 30}:{f % 30:00}";
         });
         void Rate(int d) { var f = S.MixRate.TryGetValue(me, out var r) ? r : 30; Atem.SetMixRate(Math.Clamp(f + d, 1, 250), me); }
-        styles.Children.Add(T.Row(2, T.Small("−", () => Rate(-5)), rate, T.Small("+", () => Rate(5))).With(r => r.ToolTip = "Mix rate in seconds:frames"));
+        styles.Children.Add(T.Row(2, T.Small("−", () => Rate(-5)), rate, T.Small("+", () => Rate(5))).With(r => r.ToolTip = L.Tr("Mix rate in seconds:frames")));
         var actions = new StackPanel { Margin = new Thickness(14, 0, 14, 0) };
         actions.Children.Add(T.Panel("CUT", null, null, () => Atem.Cut(me), 86, 52, 15).Margin(0, 0, 0, 8));
         var auto = new T.LitButton(() => Atem.Auto(me), 86, 52, 15);
@@ -592,18 +592,19 @@ internal sealed class StatusPage : LiveView
         col.Children.Add(EngineerView.Heading("Status", "Which version of the app this is, what it's connected to, and the last commands sent to the switcher."));
         // Which build is running: handy when checking the booth has the latest.
         var build = T.Text(AppInfo.Text, 13, FontWeights.SemiBold, T.Ink, wrap: true);
-        build.ToolTip = $"Churchfront Video for Windows. Built from commit {(AppInfo.Commit.Length > 0 ? AppInfo.Commit : "(unknown)")} of the windows-port branch.";
+        build.ToolTip = L.Tr($"Churchfront Video for Windows. Built from commit {(AppInfo.Commit.Length > 0 ? AppInfo.Commit : "(unknown)")} of the windows-port branch.");
         System.Windows.Automation.AutomationProperties.SetName(build, AppInfo.Text);
         col.Children.Add(T.Card(T.Column(4, T.Caps("This app"), build)).Margin(0, 0, 0, 14));
         var sw = T.Text("", 13, null, T.Ink, wrap: true);
         Live(() =>
         {
             var s = B.Atem.State;
-            sw.Text = $"Switcher: {ControlTools.LinkText(B.Atem.Link)}{(B.Atem.Host.Length > 0 ? $" ({B.Atem.Host})" : "")}\n" +
+            // Translated line by line ("Switcher: {state} ({host})", "Model: …").
+            sw.Text = string.Join("\n", ($"Switcher: {ControlTools.LinkText(B.Atem.Link)}{(B.Atem.Host.Length > 0 ? $" ({B.Atem.Host})" : "")}\n" +
                       (s.Product.Length > 0 ? $"Model: {s.Product}, protocol {s.Version}\n" : "") +
                       $"Inputs: {s.Inputs.Count}   M/Es: {s.MeCount}   Keys: {s.KeyerCount}   DSKs: {s.DskCount}   Aux: {s.AuxCount}\n" +
                       $"Claude's control server: {(ControlServer.Shared.Running ? $"listening on 127.0.0.1:{ControlServer.Port}" : $"not running{(ControlServer.Shared.Error is string e ? $" ({e})" : "")}")}\n" +
-                      $"Setup file: {B.Store.FilePath}{(B.Store.FileError is string fe ? $"\n  Problem: {fe}" : "")}";
+                      $"Setup file: {B.Store.FilePath}{(B.Store.FileError is string fe ? $"\n  Problem: {fe}" : "")}").Split('\n').Select(L.Tr));
         });
         col.Children.Add(T.Card(sw).Margin(0, 0, 0, 14));
 
@@ -613,9 +614,9 @@ internal sealed class StatusPage : LiveView
         {
             var cam = c;
             var t = T.Text("", 13, null, T.Ink);
-            Live(() => t.Text = $"{cam.Name}  ·  {cam.Host}:{cam.Port}  ·  {cam.Proto.Label()}  ·  " +
-                                (B.Ptz.Online.Contains(cam.Id) ? "answering" : "not answering") +
-                                (cam.Proto == VISCAProtocol.CanonXC ? (B.Ptz.Controlled.Contains(cam.Id) ? ", in control" : ", waiting for control") : "") +
+            Live(() => t.Text = $"{cam.Name}  ·  {cam.Host}:{cam.Port}  ·  {L.Tr(cam.Proto.Label())}  ·  " +
+                                L.Tr((B.Ptz.Online.Contains(cam.Id) ? "answering" : "not answering") +
+                                (cam.Proto == VISCAProtocol.CanonXC ? (B.Ptz.Controlled.Contains(cam.Id) ? ", in control" : ", waiting for control") : "")) +
                                 (B.Ptz.Models.TryGetValue(cam.Id, out var m) ? $"  ·  {m}" : ""));
             cams.Children.Add(t.Margin(0, 0, 0, 6));
         }
@@ -626,7 +627,7 @@ internal sealed class StatusPage : LiveView
         Live(() =>
         {
             var s = B.Atem.State;
-            log.Text = B.Atem.SentLog.Count == 0 ? "Nothing sent yet." :
+            log.Text = B.Atem.SentLog.Count == 0 ? L.Tr("Nothing sent yet.") :
                 string.Join("\n", B.Atem.SentLog.AsEnumerable().Reverse().Take(30).Select(e => $"{e.Time:HH:mm:ss}  {(e.Sent ? "" : "(offline) ")}{e.Describe(s)}"));
         });
         col.Children.Add(T.Card(T.Column(8, T.Caps("Sent to the switcher"), log)));

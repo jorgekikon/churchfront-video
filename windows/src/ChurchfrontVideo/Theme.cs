@@ -45,7 +45,11 @@ public static class T
     public static readonly FontFamily Sans = new("Segoe UI Variable Text, Segoe UI");
     public static readonly FontFamily Mono = new("Cascadia Mono, Consolas");
 
-    public static TextBlock Text(string s, double size = 13, FontWeight? weight = null, Brush? fg = null, bool wrap = false) => new()
+    /// <summary>A text, in the language in use (<see cref="L"/>). Names people typed have no translation, so they show as typed.</summary>
+    public static TextBlock Text(string s, double size = 13, FontWeight? weight = null, Brush? fg = null, bool wrap = false) => Raw(L.Tr(s), size, weight, fg, wrap);
+
+    /// <summary>A text shown exactly as given, never translated.</summary>
+    public static TextBlock Raw(string s, double size = 13, FontWeight? weight = null, Brush? fg = null, bool wrap = false) => new()
     {
         Text = s, FontSize = size, FontWeight = weight ?? FontWeights.Normal, Foreground = fg ?? Ink, FontFamily = Sans,
         TextWrapping = wrap ? TextWrapping.Wrap : TextWrapping.NoWrap, TextTrimming = wrap ? TextTrimming.None : TextTrimming.CharacterEllipsis, HorizontalAlignment = wrap ? HorizontalAlignment.Left : HorizontalAlignment.Stretch,
@@ -53,7 +57,7 @@ public static class T
     };
 
     /// <summary>ALL CAPS panel label.</summary>
-    public static TextBlock Caps(string s, double size = 11, Brush? fg = null) => Text(Spaced(s.ToUpperInvariant()), size, FontWeights.Bold, fg ?? InkSubtle);
+    public static TextBlock Caps(string s, double size = 11, Brush? fg = null) => Raw(Spaced(L.Tr(s).ToUpperInvariant()), size, FontWeights.Bold, fg ?? InkSubtle);
 
     /// <summary>A little letter spacing for caps labels (WPF has no tracking, so thin spaces).</summary>
     public static string Spaced(string s) => string.Join(" ", s.ToCharArray());
@@ -66,7 +70,7 @@ public static class T
 
     public static Border Badge(string text, Brush fg, Brush bg) => new()
     {
-        Child = Text(text.ToUpperInvariant(), 10, FontWeights.Bold, fg),
+        Child = Raw(L.Tr(text).ToUpperInvariant(), 10, FontWeights.Bold, fg),
         Background = bg, CornerRadius = new CornerRadius(4), Padding = new Thickness(7, 2, 7, 2), VerticalAlignment = VerticalAlignment.Center,
     };
 
@@ -120,7 +124,7 @@ public static class T
             HorizontalContentAlignment = HorizontalAlignment.Center, VerticalContentAlignment = VerticalAlignment.Center, Focusable = false,
             FontFamily = Sans,
         };
-        if (tip != null) b.ToolTip = tip;
+        if (tip != null) b.ToolTip = L.Tr(tip);
         SetRadius(b, radius);
         if (click != null) b.Click += (_, _) => click();
         return b;
@@ -144,8 +148,8 @@ public static class T
     {
         var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
         var fg = lit != null ? OnAction : InkMuted;
-        stack.Children.Add(new TextBlock { Text = title, FontSize = size, FontWeight = FontWeights.Bold, Foreground = fg, FontFamily = Sans, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
-        if (subtitle != null) stack.Children.Add(new TextBlock { Text = subtitle, FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = fg, Opacity = 0.8, FontFamily = Sans, HorizontalAlignment = HorizontalAlignment.Center });
+        stack.Children.Add(new TextBlock { Text = L.Tr(title), FontSize = size, FontWeight = FontWeights.Bold, Foreground = fg, FontFamily = Sans, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis });
+        if (subtitle != null) stack.Children.Add(new TextBlock { Text = L.Tr(subtitle), FontSize = 9, FontWeight = FontWeights.SemiBold, Foreground = fg, Opacity = 0.8, FontFamily = Sans, HorizontalAlignment = HorizontalAlignment.Center });
         var b = Button(stack, click, lit ?? SurfaceRaised, lit != null ? new SolidColorBrush(Color.FromArgb(64, 255, 255, 255)) : Line, w, h, 8, new Thickness(4), tip);
         if (lit != null && lit is SolidColorBrush sb) b.Effect = new System.Windows.Media.Effects.DropShadowEffect { Color = sb.Color, BlurRadius = 14, ShadowDepth = 0, Opacity = 0.55 };
         return b;
@@ -162,13 +166,18 @@ public static class T
         {
             _title = new TextBlock { FontSize = size, FontWeight = FontWeights.Bold, FontFamily = Sans, HorizontalAlignment = HorizontalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             _sub = new TextBlock { FontSize = 9, FontWeight = FontWeights.SemiBold, Opacity = 0.8, FontFamily = Sans, HorizontalAlignment = HorizontalAlignment.Center };
-            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
-            stack.Children.Add(_title); stack.Children.Add(_sub);
+            var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Stretch };
+            // The title shrinks to fit rather than being cut off (long labels, other languages).
+            _title.TextTrimming = TextTrimming.None;
+            stack.Children.Add(new Viewbox { Child = _title, StretchDirection = StretchDirection.DownOnly, Margin = new Thickness(4, 0, 4, 0), HorizontalAlignment = HorizontalAlignment.Center });
+            stack.Children.Add(_sub);
             Button = T.Button(stack, click, SurfaceRaised, Line, w, h, 8, new Thickness(4), tip);
+            Button.HorizontalContentAlignment = HorizontalAlignment.Stretch;
         }
         public void Set(string title, string? subtitle, Brush? lit, string? tip = null)
         {
-            if (tip != null) Button.ToolTip = tip;
+            if (tip != null) Button.ToolTip = L.Tr(tip);
+            title = L.Tr(title); subtitle = subtitle == null ? null : L.Tr(subtitle);
             if (_last is var (a, b, c) && a == title && b == subtitle && c == lit) return;
             _last = (title, subtitle, lit);
             _title.Text = title; _sub.Text = subtitle ?? ""; _sub.Visibility = subtitle == null ? Visibility.Collapsed : Visibility.Visible;
@@ -203,7 +212,7 @@ public static class T
     public static ContextMenu Menu() => new() { Background = SurfaceRaised, Foreground = Ink, BorderBrush = LineStrong, FontFamily = Sans, FontSize = 13 };
     public static MenuItem Item(string label, Action pick, bool danger = false)
     {
-        var i = new MenuItem { Header = label, Foreground = danger ? Danger : Ink, Background = SurfaceRaised };
+        var i = new MenuItem { Header = L.Tr(label), Foreground = danger ? Danger : Ink, Background = SurfaceRaised };
         i.Click += (_, _) => pick();
         return i;
     }
@@ -233,7 +242,7 @@ public static class T
     /// <summary>Grey hint text in an empty field.</summary>
     public static void Placeholder(TextBox tb, string hint)
     {
-        var brush = new VisualBrush(new TextBlock { Text = hint, Foreground = InkSubtle, FontSize = 13, FontFamily = Sans, Margin = new Thickness(2, 0, 0, 0) })
+        var brush = new VisualBrush(new TextBlock { Text = L.Tr(hint), Foreground = InkSubtle, FontSize = 13, FontFamily = Sans, Margin = new Thickness(2, 0, 0, 0) })
         { AlignmentX = AlignmentX.Left, AlignmentY = AlignmentY.Center, Stretch = Stretch.None };
         ((TextBlock)brush.Visual).Padding = new Thickness(6, 0, 0, 0);
         void Update() => tb.Background = tb.Text.Length == 0 && !tb.IsKeyboardFocused ? brush : SurfaceSunken;

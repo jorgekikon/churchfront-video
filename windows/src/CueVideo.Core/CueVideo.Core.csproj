@@ -6,5 +6,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\CueATEM\CueATEM.csproj" />
+    <!-- Built-in languages (see Localization.cs): one file per language, English text → translation. -->
+    <EmbeddedResource Include="Lang\*.json" />
   </ItemGroup>
 </Project>

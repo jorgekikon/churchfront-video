@@ -73,8 +73,8 @@ public sealed class TopMonitors : LiveView
             var i = input();
             var p = Pictures.Image(i);
             img.Source = p;
-            name.Text = p != null ? "" : i == null ? "Mixed" : Store.RouteLabel(i, S);
-            cap.Text = caption();
+            name.Text = p != null ? "" : i == null ? L.Tr("Mixed") : Store.RouteLabel(i, S);
+            cap.Text = L.Tr(caption());
         });
         return b;
     }

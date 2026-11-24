@@ -33,8 +33,8 @@ public static class NdiPicker
             m.Items.Clear();
             m.Items.Add(T.Item(none, () => set(null)));
             m.Items.Add(new Separator());
-            if (!NdiDirectory.HasRuntime) m.Items.Add(new MenuItem { Header = "NDI isn't installed on this computer. Install NDI Tools (free, from ndi.video) to see network pictures.", IsEnabled = false, Foreground = T.InkMuted });
-            else if (NdiDirectory.Sources.Count == 0) m.Items.Add(new MenuItem { Header = NdiDirectory.Scanning ? "Looking for NDI sources…" : "No NDI sources found yet", IsEnabled = false, Foreground = T.InkMuted });
+            if (!NdiDirectory.HasRuntime) m.Items.Add(new MenuItem { Header = L.Tr("NDI isn't installed on this computer. Install NDI Tools (free, from ndi.video) to see network pictures."), IsEnabled = false, Foreground = T.InkMuted });
+            else if (NdiDirectory.Sources.Count == 0) m.Items.Add(new MenuItem { Header = L.Tr(NdiDirectory.Scanning ? "Looking for NDI sources…" : "No NDI sources found yet"), IsEnabled = false, Foreground = T.InkMuted });
             foreach (var n in NdiDirectory.Sources)
             {
                 var name = n;
@@ -42,7 +42,7 @@ public static class NdiPicker
             }
             // A saved source that isn't on the network now still shows, so it can be seen and cleared.
             if (!string.IsNullOrEmpty(selection) && !NdiDirectory.Sources.Contains(selection))
-                m.Items.Add(new MenuItem { Header = Ndi.ShortName(selection) + "  ✓ (not on the network now)", IsEnabled = false, Foreground = T.InkMuted });
+                m.Items.Add(new MenuItem { Header = Ndi.ShortName(selection) + "  ✓ " + L.Tr("(not on the network now)"), IsEnabled = false, Foreground = T.InkMuted });
             m.Items.Add(new Separator());
             m.Items.Add(T.Item("Look again", () => { NdiDirectory.Scan(); }));
         }

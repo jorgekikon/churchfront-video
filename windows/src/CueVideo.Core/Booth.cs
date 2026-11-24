@@ -162,6 +162,8 @@ public sealed class Prefs
     public double? WindowWidth { get; set; }
     public double? WindowHeight { get; set; }
     public bool Maximized { get; set; }
+    /// <summary>The language of this computer's screens ("en", "es", …). Chosen on the Operator screen.</summary>
+    public string Language { get; set; } = "en";
 
     private static string FilePath => Path.Combine(ConfigStore.Folder, "prefs.json");
 

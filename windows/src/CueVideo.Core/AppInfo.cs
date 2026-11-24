@@ -38,8 +38,20 @@ public static class AppInfo
         }
     }
 
-    /// <summary>"Version 0.1.2 (build 9e45c9d), built Tuesday, November 24, 2026 at 4:40 PM".</summary>
+    /// <summary>"Version 0.1.2 (build 9e45c9d), built Tuesday, November 24, 2026 at 4:40 PM",
+    /// with the date written the way the language in use writes it.</summary>
     public static string Text =>
         $"Version {Version}{(Commit.Length > 0 ? $" (build {Commit})" : "")}" +
-        (Built is DateTime b ? $", built {b.ToString("dddd, MMMM d, yyyy 'at' h:mm tt", CultureInfo.CurrentCulture)}" : "");
+        (Built is DateTime b ? $", built {When(b)}" : "");
+
+    private static string When(DateTime d)
+    {
+        if (L.IsEnglish) return d.ToString("dddd, MMMM d, yyyy 'at' h:mm tt", CultureInfo.CurrentCulture);
+        try
+        {
+            var c = CultureInfo.GetCultureInfo(L.Code);
+            return d.ToString("D", c) + ", " + d.ToString("t", c);
+        }
+        catch (CultureNotFoundException) { return d.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture); }
+    }
 }

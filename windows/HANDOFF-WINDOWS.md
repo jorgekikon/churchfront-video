@@ -286,6 +286,35 @@ After services the Canons are put in standby from Companion. The app now powers 
 - Checked: smoke tests against the fake Canon, the app's buttons clicked against it, and both Wake and Standby
   used on the real Canons on 2026-11-24.
 
+## Languages: English and Spanish (2026-11-24, Windows only)
+- The 🌐 button in the top bar picks the language for this computer's screens. It's saved as `language` in
+  prefs.json (per computer, not in config.json), and switching redraws the window straight away.
+- Engine: `src/CueVideo.Core/Localization.cs` (`L.Tr`).
+  - English is the code itself. Each other language is one JSON file mapping English → translation.
+  - A `{word}` in a key matches anything (a name, a number). What it matched is translated too and put back
+    in the translation's `{word}`. The most specific pattern wins.
+  - Anything untranslated shows in English.
+- Built in: `src/CueVideo.Core/Lang/es.json`, Latin American Spanish, informal "tú", about 450 lines.
+  - Kept as they are: camera, input, macro and screen names; ATEM panel labels (MIX, DIP, WIPE, DVE, FTB,
+    BKGD, TIE); key names (Ctrl, Shift, Esc).
+  - Return is "Enter" in Spanish.
+- Add a language without rebuilding: a `xx.json` of the same shape in `lang\` beside the exe or in
+  `%APPDATA%\CueVideo\lang\`. A file there also overrides lines of a built-in one.
+- How texts are translated:
+  - The shared helpers in Theme.cs (Text, Caps, Badge, button tips, Panel, LitButton, menu items,
+    placeholders) translate as they draw. `T.Raw` never translates.
+  - Places that set text while running call `L.Tr` themselves.
+  - Claude's tool replies stay English.
+- Finding what's missing: run with `CUEVIDEO_LANG=es CUEVIDEO_LANG_MISSING=<file>` and every untranslated
+  text shown is written to the file. After walking every page and the tour, only names, ATEM panel labels,
+  shortcuts and paths were left.
+- Layout: the Fade and Cut words shrink to fit (FUNDIDO).
+- Checked:
+  - 7 smoke checks for the engine.
+  - The Spanish screens looked at in a test copy.
+  - Switching English → Spanish → English → Spanish from the 🌐 button, with no errors logged.
+- Not checked: a native speaker's review of the Spanish wording.
+
 ## Guided tour of the Operator screen (2026-11-24, Windows only)
 - The tour is 16 cards, dimming everything except one part of the screen at a time, in working order:
   1. Welcome.
@@ -304,8 +333,12 @@ After services the Canons are put in standby from Companion. The app now powers 
   14. Record, Stream and Wake.
   15. Engineer.
   16. The rhythm of a service.
+- The top-right card follows the switcher. Record and Stream exist only on ATEMs that record or stream by
+  themselves (HasRecording/HasStreaming). The booth's Television Studio HD doesn't, so for it the card is
+  "Camera power and setup": it says the stream runs elsewhere, then covers Wake and the gear. FakeDevices
+  `--no-stream` plays such a switcher.
 - It opens by itself on a first run: `ConfigStore.StartedFresh`, set when there was no config.json and one
-  was made; never in a self-test. Otherwise it opens from the "? Tour" button in the top bar, which shows
+  was made; never in a self-test. Otherwise it opens from the "Tour" button in the top bar, which shows
   only on Operator.
 - While it's open, the overlay takes every click and key, so nothing behind it is pressed (`MainWindow.Key`
   hands keys to the tour first). Arrows or Return move, and Esc ends.

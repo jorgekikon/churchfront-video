@@ -15,16 +15,15 @@ public sealed class MainWindow : Window
 {
     public const string WindowTitle = "Churchfront Video";
     private static Booth B => Booth.Shared;
-    private readonly ContentControl _content = new();
-    private readonly OperatorView _operator = new();
-    private readonly EngineerView _engineer = new();
-    private readonly TopMonitors _monitors = new();
-    private readonly Button _opTab, _enTab;
-    private readonly TextBlock _opText, _enText, _status, _cams;
-    private readonly System.Windows.Shapes.Ellipse _dot = new() { Width = 8, Height = 8 };
-    private readonly T.LitButton _record, _stream, _wake;
-    private readonly Button _tourButton;
-    private readonly Tour _tour;
+    private ContentControl _content = new();
+    private OperatorView _operator = new();
+    private EngineerView _engineer = new();
+    private TopMonitors _monitors = new();
+    private Button _opTab = null!, _enTab = null!, _tourButton = null!, _langButton = null!;
+    private TextBlock _opText = null!, _enText = null!, _status = null!, _cams = null!;
+    private System.Windows.Shapes.Ellipse _dot = new() { Width = 8, Height = 8 };
+    private T.LitButton _record = null!, _stream = null!, _wake = null!;
+    private Tour _tour = null!;
     /// <summary>Whether the guided tour is showing (for self-tests).</summary>
     public bool TourOpen => _tour.IsOpen;
     private bool _dirty = true;
@@ -41,50 +40,7 @@ public sealed class MainWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         try { Icon = new System.Windows.Media.Imaging.BitmapImage(new Uri("pack://application:,,,/AppIcon.ico")); } catch { }
 
-        // Top bar
-        _opText = T.Text("Operator", 13, FontWeights.SemiBold); _enText = T.Text("Engineer", 13, FontWeights.SemiBold);
-        _opTab = T.Button(_opText, () => B.View = AppView.Operate, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "The booth screen (Ctrl+1)");
-        // The Engineer tab opens on Status, which anyone can see; the other pages may ask for the PIN.
-        _enTab = T.Button(_enText, () => { if (B.View != AppView.Engineer) B.Show(EngineerSection.Status); }, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "Status, and the pages for routing, the full switcher and setup (these may ask for the PIN)");
-        var seg = new Border { Background = T.SurfaceSunken, BorderBrush = T.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2), Child = T.Row(2, _opTab, _enTab) };
-        _status = T.Text("", 13, FontWeights.SemiBold);
-        _cams = T.Text("", 13, null, T.InkMuted);
-        _record = new T.LitButton(() => Toggle(recording: true), 110, 30, 12);
-        _stream = new T.LitButton(() => Toggle(recording: false), 110, 30, 12);
-        _record.Button.Margin = new Thickness(0, 0, 8, 0); _stream.Button.Margin = new Thickness(0, 0, 8, 0);
-        // Shown only while a Canon camera is in standby (put there after services, from Companion).
-        _wake = new T.LitButton(WakeCameras, 150, 30, 12);
-        _wake.Button.Margin = new Thickness(0, 0, 8, 0);
-        var gear = T.Button(T.Text("⚙", 16, null, T.InkMuted), () => B.Show(EngineerSection.Setup), T.Transparent, T.Transparent, 34, 30, 6, new Thickness(0), "Setup (Ctrl+,)");
-        var right = T.Row(0, _wake.Button, _record.Button, _stream.Button, gear);
-        right.VerticalAlignment = VerticalAlignment.Center;
-        var bar = new DockPanel { Height = 64, Margin = new Thickness(20, 0, 16, 0) };
-        DockPanel.SetDock(right, Dock.Right);
-        bar.Children.Add(right);
-        // Small live pictures: Live and Next (off Operator), then the pinned screens.
-        _monitors.Margin = new Thickness(0, 0, 12, 0);
-        DockPanel.SetDock(_monitors, Dock.Right);
-        bar.Children.Add(_monitors);
-        // The guided tour of the Operator screen, any time (shown only on Operator).
-        _tourButton = T.Button(T.Row(6, T.Text("?", 12, FontWeights.Bold, T.AccentStrong), T.Text("Tour", 12, FontWeights.SemiBold, T.AccentStrong)),
-            () => _tour?.Open(), T.Transparent, T.Line, h: 28, radius: 6, pad: new Thickness(10, 0, 10, 0),
-            tip: "A guided tour of the Operator screen, for anyone new to it");
-        System.Windows.Automation.AutomationProperties.SetName(_tourButton, "Tour");
-        var left = T.Row(16, T.Text("Churchfront Video", 16, FontWeights.Bold), Tour.Mark(seg, "views"), Tour.Mark(T.Row(6, _dot, _status), "connection"), _cams, Tour.Mark(_tourButton, "tour"));
-        left.VerticalAlignment = VerticalAlignment.Center;
-        bar.Children.Add(left);
-        Tour.Mark(right, "topright");
-
-        var root = new DockPanel();
-        var barBorder = new Border { Child = bar, Background = T.Toolbar, BorderBrush = T.Line, BorderThickness = new Thickness(0, 0, 0, 1) };
-        DockPanel.SetDock(barBorder, Dock.Top);
-        root.Children.Add(barBorder);
-        root.Children.Add(_content);
-        // The tour lies over everything, and catches every click and key while it's open.
-        var shell = new Grid();
-        shell.Children.Add(root);
-        _tour = new Tour(shell);
-        Content = shell;
+        BuildShell();
         // First run (no setup file before this one was made), or a self-test asking for it: start the tour.
         Loaded += (_, _) =>
         {
@@ -148,6 +104,93 @@ public sealed class MainWindow : Window
         }
     }
 
+    /// <summary>Switches the screens to a language, remembers it for this computer, and redraws.</summary>
+    public void UseLanguage(string code)
+    {
+        if (code == L.Code) return;
+        L.Use(code);
+        B.Prefs.Language = L.Code;
+        if (!B.Store.ReadOnly) B.Prefs.Save();
+        var tourWasOpen = _tour.IsOpen;
+        BuildShell();
+        _dirty = true;
+        RefreshAll();
+        if (tourWasOpen) _tour.Open();
+    }
+
+    /// <summary>Builds everything in the window: the top bar, the views and the tour layer.
+    /// Run again when the language changes, so every text is drawn in the new language.</summary>
+    private void BuildShell()
+    {
+        _operator.Teardown(); _engineer.Leave(); _monitors.Teardown();
+        // Everything is made new: an element can only sit in one place, and the old bar still holds the old ones.
+        _operator = new(); _engineer = new(); _monitors = new(); _content = new(); _shownView = null;
+        _dot = new() { Width = 8, Height = 8 };
+        Title = WindowTitle;
+        // Top bar
+        _opText = T.Text("Operator", 13, FontWeights.SemiBold); _enText = T.Text("Engineer", 13, FontWeights.SemiBold);
+        _opTab = T.Button(_opText, () => B.View = AppView.Operate, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "The booth screen (Ctrl+1)");
+        // The Engineer tab opens on Status, which anyone can see; the other pages may ask for the PIN.
+        _enTab = T.Button(_enText, () => { if (B.View != AppView.Engineer) B.Show(EngineerSection.Status); }, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "Status, and the pages for routing, the full switcher and setup (these may ask for the PIN)");
+        var seg = new Border { Background = T.SurfaceSunken, BorderBrush = T.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2), Child = T.Row(2, _opTab, _enTab) };
+        _status = T.Text("", 13, FontWeights.SemiBold);
+        _cams = T.Text("", 13, null, T.InkMuted);
+        _record = new T.LitButton(() => Toggle(recording: true), 110, 30, 12);
+        _stream = new T.LitButton(() => Toggle(recording: false), 110, 30, 12);
+        _record.Button.Margin = new Thickness(0, 0, 8, 0); _stream.Button.Margin = new Thickness(0, 0, 8, 0);
+        // Shown only while a Canon camera is in standby (put there after services, from Companion).
+        _wake = new T.LitButton(WakeCameras, 150, 30, 12);
+        _wake.Button.Margin = new Thickness(0, 0, 8, 0);
+        var gear = T.Button(T.Text("⚙", 16, null, T.InkMuted), () => B.Show(EngineerSection.Setup), T.Transparent, T.Transparent, 34, 30, 6, new Thickness(0), "Setup (Ctrl+,)");
+        var right = T.Row(0, _wake.Button, _record.Button, _stream.Button, gear);
+        right.VerticalAlignment = VerticalAlignment.Center;
+        var bar = new DockPanel { Height = 64, Margin = new Thickness(20, 0, 16, 0) };
+        DockPanel.SetDock(right, Dock.Right);
+        bar.Children.Add(right);
+        // Small live pictures: Live and Next (off Operator), then the pinned screens.
+        _monitors.Margin = new Thickness(0, 0, 12, 0);
+        DockPanel.SetDock(_monitors, Dock.Right);
+        bar.Children.Add(_monitors);
+        // The guided tour of the Operator screen, any time (shown only on Operator).
+        _tourButton = T.Button(T.Text("Tour", 12, FontWeights.SemiBold, T.AccentStrong),
+            () => _tour?.Open(), T.Transparent, T.Line, h: 28, radius: 6, pad: new Thickness(10, 0, 10, 0),
+            tip: "A guided tour of the Operator screen, for anyone new to it");
+        System.Windows.Automation.AutomationProperties.SetName(_tourButton, "Tour");
+        // Language for this computer's screens (English, Español, and any other language file found).
+        _langButton = T.Button(T.Row(6, T.Raw("🌐", 12), T.Raw(L.NameOf(L.Code), 12, FontWeights.SemiBold), T.Raw("▾", 10, null, T.InkMuted)),
+            null, T.Transparent, T.Line, h: 28, radius: 6, pad: new Thickness(10, 0, 10, 0), tip: "Language for the screens on this computer");
+        System.Windows.Automation.AutomationProperties.SetName(_langButton, "Language");
+        _langButton.Click += (_, _) =>
+        {
+            var m = T.Menu();
+            foreach (var lang in L.Available)
+            {
+                var code = lang.Code;
+                // Each language by its own name, never translated.
+                var item = new MenuItem { Header = lang.Name, IsCheckable = true, IsChecked = code == L.Code, Foreground = T.Ink, Background = T.SurfaceRaised };
+                item.Click += (_, _) => UseLanguage(code);
+                m.Items.Add(item);
+            }
+            m.PlacementTarget = _langButton; m.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom; m.IsOpen = true;
+        };
+        var left = T.Row(16, T.Text("Churchfront Video", 16, FontWeights.Bold), Tour.Mark(seg, "views"), Tour.Mark(T.Row(6, _dot, _status), "connection"), _cams,
+            T.Row(8, Tour.Mark(_tourButton, "tour"), Tour.Mark(_langButton, "language")));
+        left.VerticalAlignment = VerticalAlignment.Center;
+        bar.Children.Add(left);
+        Tour.Mark(right, "topright");
+
+        var root = new DockPanel();
+        var barBorder = new Border { Child = bar, Background = T.Toolbar, BorderBrush = T.Line, BorderThickness = new Thickness(0, 0, 0, 1) };
+        DockPanel.SetDock(barBorder, Dock.Top);
+        root.Children.Add(barBorder);
+        root.Children.Add(_content);
+        // The tour lies over everything, and catches every click and key while it's open.
+        var shell = new Grid();
+        shell.Children.Add(root);
+        _tour = new Tour(shell);
+        Content = shell;
+    }
+
     private void Toggle(bool recording)
     {
         var s = B.Atem.State;
@@ -173,9 +216,10 @@ public sealed class MainWindow : Window
             LinkKind.Offline => ("Offline", T.Danger, T.Danger),
             _ => ("No switcher set up", T.InkMuted, T.InkSubtle),
         };
-        _status.ToolTip = ControlTools.LinkText(link) + (B.Atem.Host.Length > 0 ? $" ({B.Atem.Host})" : "");
+        _status.Text = L.Tr(_status.Text);
+        _status.ToolTip = L.Tr(ControlTools.LinkText(link)) + (B.Atem.Host.Length > 0 ? $" ({B.Atem.Host})" : "");
         var n = B.Ptz.Cameras.Count;
-        _cams.Text = n == 0 ? "" : $"{n} camera{(n == 1 ? "" : "s")}";
+        _cams.Text = n == 0 ? "" : L.Tr($"{n} camera{(n == 1 ? "" : "s")}");
         var s = B.Atem.State;
         _record.Button.Visibility = s.HasRecording ? Visibility.Visible : Visibility.Collapsed;
         _stream.Button.Visibility = s.HasStreaming ? Visibility.Visible : Visibility.Collapsed;

@@ -67,7 +67,7 @@ internal sealed class SetupPage : LiveView
         var state = T.Text("", 13, FontWeights.SemiBold);
         Live(() =>
         {
-            state.Text = ControlTools.LinkText(B.Atem.Link) + (S.Product.Length > 0 ? $" · {S.Product}" : "");
+            state.Text = L.Tr(ControlTools.LinkText(B.Atem.Link)) + (S.Product.Length > 0 ? $" · {S.Product}" : "");
             state.Foreground = B.Atem.Link.Kind == LinkKind.Online ? T.Success : B.Atem.Link.Kind == LinkKind.Offline ? T.Warning : T.InkMuted;
         });
         var mes = Enumerable.Range(1, Math.Max(1, S.MeCount)).Select(m => ($"M/E {m}", (Action)(() => Store.Update(c => c.Me = m))));
@@ -83,7 +83,7 @@ internal sealed class SetupPage : LiveView
     {
         var win = new Window
         {
-            Title = "Find devices", Width = 560, Height = 420, Background = T.Surface, Owner = Application.Current.MainWindow,
+            Title = L.Tr("Find devices"), Width = 560, Height = 420, Background = T.Surface, Owner = Application.Current.MainWindow,
             WindowStartupLocation = WindowStartupLocation.CenterOwner, ShowInTaskbar = false, FontFamily = T.Sans,
         };
         var list = new StackPanel();
@@ -220,7 +220,7 @@ internal sealed class SetupPage : LiveView
             void Edit(Action<PTZCamera> f) => B.Ptz.Edit(l => { var x = l.FirstOrDefault(y => y.Id == id); if (x != null) f(x); });
             var dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8 };
             Live(() => dot.Fill = B.Ptz.HasControl(c) ? T.Success : B.Ptz.Online.Contains(id) || B.Ptz.InStandby(c) || B.Ptz.Waking(c) ? T.Warning : T.InkSubtle);
-            dot.ToolTip = "Green: answering and in control. Amber: answering, but another controller has it or it's in standby. Grey: not answering.";
+            dot.ToolTip = L.Tr("Green: answering and in control. Amber: answering, but another controller has it or it's in standby. Grey: not answering.");
             var name = T.Field(c.Name, v => Edit(x => x.Name = v.Trim().Length > 0 ? v.Trim() : "Camera"), 150);
             var host = T.Field(c.Host, v => Edit(x => x.Host = v.Trim()), 150, "192.168.1.91");
             var proto = T.Picker(c.Proto.Label(), Enum.GetValues<VISCAProtocol>().Select(p => (p.Label(), (Action)(() => Edit(x => { if (x.Proto != p) { x.Proto = p; x.Port = p.DefaultPort(); } })))), 180);
@@ -233,7 +233,7 @@ internal sealed class SetupPage : LiveView
             var presets = c.Proto == VISCAProtocol.CanonXC ? (UIElement)T.Text("From the camera", 12, null, T.InkMuted).With(t => t.Width = 130)
                 : c.Proto == VISCAProtocol.PanasonicHTTP ? T.Text("None (zoom and focus only)", 12, null, T.InkMuted).With(t => t.Width = 130)
                 : T.Picker($"Count from {c.FirstPreset}", new[] { ("Count from 0", (Action)(() => Edit(x => x.FirstPreset = 0))), ("Count from 1", (Action)(() => Edit(x => x.FirstPreset = 1))) }, 130)
-                    .With(p => p.ToolTip = "Whether this camera numbers its presets from 0 or from 1. If a preset recalls the wrong position, try the other one.");
+                    .With(p => p.ToolTip = L.Tr("Whether this camera numbers its presets from 0 or from 1. If a preset recalls the wrong position, try the other one."));
             var del = T.Small("Delete", () =>
             {
                 if (Dialogs.Confirm($"Delete {c.Name}?", "The camera and its saved shots are removed from Churchfront Video. The camera itself isn't changed.", "Delete", danger: true))
@@ -253,9 +253,9 @@ internal sealed class SetupPage : LiveView
                 var cam = B.Ptz.Camera(id);
                 var state = cam == null ? null : B.Ptz.Power.GetValueOrDefault(id);
                 power.Visibility = state == null ? Visibility.Collapsed : Visibility.Visible;
-                powerText.Text = state switch { "standby" => "⏻ Wake", "idle" => "Standby", "switch_idle" => "Waking…", _ => "Going to standby…" };
+                powerText.Text = L.Tr(state switch { "standby" => "⏻ Wake", "idle" => "Standby", "switch_idle" => "Waking…", _ => "Going to standby…" });
                 power.IsEnabled = state is "standby" or "idle";
-                power.ToolTip = state == "standby" ? "Power the camera on from standby" : "Put the camera in standby, as after a service";
+                power.ToolTip = L.Tr(state == "standby" ? "Power the camera on from standby" : "Put the camera in standby, as after a service");
             });
             col.Children.Add(T.Row(8, dot, name, host, proto, port, input, presets, del, power).Margin(0, 0, 0, 8));
             if (c.Proto == VISCAProtocol.PanasonicHTTP)
@@ -278,7 +278,7 @@ internal sealed class SetupPage : LiveView
         var saved = CameraLogin.Load();
         var user = T.Field(saved?.User ?? "", _ => { }, 180, "User name");
         var pass = new PasswordBox { Width = 200, Height = 30, Background = T.SurfaceSunken, Foreground = T.Ink, BorderBrush = T.Line, CaretBrush = T.Ink, Padding = new Thickness(6, 4, 6, 4), VerticalContentAlignment = VerticalAlignment.Center };
-        pass.ToolTip = saved != null ? "Saved. Type to replace it." : "Password";
+        pass.ToolTip = L.Tr(saved != null ? "Saved. Type to replace it." : "Password");
         var login = T.Column(10,
             T.Caps("Camera admin login"),
             T.Text("Only needed to delete presets saved on the Canon cameras themselves, or to wake a camera that asks for a login. Kept safely in Windows (Credential Manager), never in the settings file.", 12, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 560),
@@ -301,8 +301,8 @@ internal sealed class SetupPage : LiveView
     {
         if (cams.Count == 0) return;
         var names = string.Join(", ", cams.Select(c => c.Name));
-        var warnings = B.StandbyWarnings(cams);
-        var msg = $"{names} will power down to standby. Wake {(cams.Count == 1 ? "it" : "them")} again from the button at the top.";
+        var warnings = B.StandbyWarnings(cams).Select(L.Tr).ToList();
+        var msg = L.Tr(cams.Count == 1 ? $"{names} will power down to standby. Wake it again from the button at the top." : $"{names} will power down to standby. Wake them again from the button at the top.");
         if (warnings.Count > 0) msg = string.Join("\n", warnings) + "\n\n" + msg;
         if (!Dialogs.Confirm(cams.Count == 1 ? $"Put {cams[0].Name} in standby?" : $"Put {cams.Count} cameras in standby?", msg,
                 warnings.Count > 0 ? "Standby anyway" : "Standby", danger: true)) return;
