@@ -49,6 +49,9 @@ public sealed class PTZCamera
     public Dictionary<int, string> PresetNames { get; set; } = new();
     /// <summary>Shots saved in Churchfront Video (not on the camera), in button order.</summary>
     public List<PTZShot> Shots { get; set; } = new();
+    /// <summary>The order the camera's own presets are shown in, by preset number. Ones not
+    /// listed come after, by number.</summary>
+    public List<int> PresetOrder { get; set; } = new();
 
     /// <summary>Fills in what a hand-written camera left out: the port follows the protocol.</summary>
     public PTZCamera Normalized()
@@ -58,6 +61,7 @@ public sealed class PTZCamera
         Host ??= "";
         PresetNames ??= new();
         Shots ??= new();
+        PresetOrder ??= new();
         return this;
     }
 

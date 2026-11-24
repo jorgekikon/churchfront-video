@@ -182,6 +182,56 @@ try
     Pt(0, 0.70, 0.31); Pt(1, 0.69, 0.29); Pt(2, 0.71, 0.29); Pt(3, 0.66, 0.30); Pt(4, 0.74, 0.30); Pt(5, 0.62, 0.50); Pt(6, 0.78, 0.50);
     var people = TrackedPerson.From(new() { new PoseBody { Box = new(0.55, 0.15, 0.3, 0.85), Score = 0.9, Points = pts } }, null);
     Check(people.Count == 1 && people[0].Size == ShotSize.Waist && Math.Abs(people[0].Eye.X - 0.70) < 0.01, "reads a waist-up shot from the body points");
+    Check(people[0].ShoulderSpan is double span0 && span0 > 1 && people[0].Core.MaxX <= 0.781, "measures shoulder span and the head-and-torso box");
+    // The same person with an arm stretched out to the right edge: the whole box reaches it, the torso doesn't.
+    var armPts = pts.ToArray();
+    armPts[8] = (0.88, 0.45, 0.9); armPts[10] = (0.97, 0.42, 0.9);   // right elbow and wrist
+    var armed = TrackedPerson.From(new() { new PoseBody { Box = new(0.55, 0.15, 0.45, 0.85), Score = 0.9, Points = armPts } }, null)[0];
+    Check(armed.Box.MaxX > 0.96 && armed.Core.MaxX < 0.79, "an outstretched arm widens the body's box but not the torso's");
+
+    // MARK: Tracking rules, ported from the Mac's EdgeAlarmTests
+    Check(AutoTracker.EdgeUrgency(new RectD(0.42, 0.2, 0.16, 0.5), 0.5, true) == 0
+          && AutoTracker.EdgeUrgency(new RectD(0.42, 0.2, 0.47, 0.5), 0.5, true) > 0, "gestures don't move the camera: the edge alarm goes by head and torso");
+    Check(AutoTracker.EdgeUrgency(new RectD(0.78, 0.2, 0.16, 0.5), 0.86, true) > 0.5
+          && AutoTracker.EdgeUrgency(new RectD(0.78, 0.2, 0.16, 0.5), 0.86, false) == 0, "a torso near the edge it's heading for still alarms");
+    Check(Math.Abs(AutoTracker.LeadTarget(0.3, 1, 0.11) + 0.11) < 1e-9 && Math.Abs(AutoTracker.LeadTarget(-0.3, 1, 0.11) - 0.11) < 1e-9, "walking gets the full lead ahead");
+    Check(Math.Abs(AutoTracker.LeadTarget(0, -1, 0.11) - AutoTracker.LeadTarget(0, 1, 0.11)) < 0.08 && AutoTracker.LeadTarget(0, 0, 0.11) == 0,
+          "standing at a music stand and turning to each side only nudges the shot");
+    Check(AutoTracker.BodyTurn(1, 1.7, 1.8) == 0, "a head turn alone is not a body turn");
+    Check(AutoTracker.BodyTurn(-1, 1.0, 1.8) == -1 && AutoTracker.BodyTurn(0, 1.0, 1.8) == 0 && AutoTracker.BodyTurn(1, null, 1.8) == 0,
+          "narrow shoulders with the head the same way are a body turn");
+    Check(AutoTracker.WalkConfirm(1, 1) == 0.25 && AutoTracker.WalkConfirm(-1, 1) == 0.5 && AutoTracker.WalkConfirm(1, 0) == 0.5, "a walk the way they're turned is confirmed sooner");
+    var ww = 0.0;
+    for (int i = 0; i < 8; i++) ww = AutoTracker.WalkWeight(ww, 1, 0.07, 0.5);
+    var full = Math.Abs(ww - 1) < 1e-9;
+    ww = AutoTracker.WalkWeight(ww, 0, 0.07, 0.5);
+    var dented = ww > 0.8;
+    for (int i = 0; i < 20; i++) ww = AutoTracker.WalkWeight(ww, -1, 0.07, 0.5);
+    Check(full && dented && ww <= 0, "a brief dip doesn't end a walk, and turning back fades it before reversing");
+    var rr = AutoTracker.EaseRate(0.1, 0.8, 0.07, false, 0.5);
+    var gentle = rr < 0.25;
+    for (int i = 0; i < 15; i++) rr = AutoTracker.EaseRate(rr, 0.8, 0.07, false, 0.5);
+    Check(gentle && Math.Abs(rr - 0.8) < 0.05, "speed-ups are eased over several frames");
+    Check(AutoTracker.CameraSpeed(8, true) == 20 && AutoTracker.CameraSpeed(-8, true) == -20 && AutoTracker.CameraSpeed(8, false) == 0
+          && AutoTracker.CameraSpeed(0.4, true) == 0 && AutoTracker.CameraSpeed(1234, false) == 1230, "small corrections still move the camera when correcting");
+
+    // MARK: Shot deck, ported from the Mac's ShotDeckTests
+    Check(new ShotDrag { From = 1, Lo = 0, Hi = 9, CellW = 100, CellH = 80, MovedX = 10, MovedY = 75 }.To == 6, "dragging down a row lands five slots on");
+    Check(new ShotDrag { From = 0, Lo = 0, Hi = 3, CellW = 100, CellH = 80, MovedX = 400, MovedY = 80 }.To == 3, "a drop stays inside its run");
+    var drag = new ShotDrag { From = 2, Lo = 0, Hi = 9, CellW = 100, CellH = 80, MovedY = 80 };
+    Check(drag.To == 7 && drag.Shift(5) == (400, -80) && drag.Shift(3) == (-100, 0) && drag.Shift(8) == (0, 0), "tiles it passes step back across the row end");
+    Check(HeadroomStepper.Steps(0.29, 0.29) == 0 && HeadroomStepper.Steps(0.25, 0.29) == -2 && HeadroomStepper.Steps(0.31, 0.29) == 1
+          && HeadroomStepper.Label(0) == "Std" && HeadroomStepper.Label(1) == "+1" && HeadroomStepper.Label(-2) == "−2", "headroom steps count from the standard");
+    var hcfg = new CueConfig();
+    HeadroomStepper.Set(hcfg, ShotSize.Waist, HeadroomStepper.Stepped(0.29, 1));
+    var stepped = hcfg.Framing["waist"].EyeLine == 0.31;
+    HeadroomStepper.Set(hcfg, ShotSize.Waist, 0.29);
+    Check(stepped && !hcfg.Framing.ContainsKey("waist"), "headroom saves a change, and back at the standard leaves none");
+    Check(ShotDeckState.OrderPresets(new[] { 1, 2, 3, 4 }, new[] { 3, 1 }).SequenceEqual(new[] { 3, 1, 2, 4 }), "camera presets follow the saved order, the rest by number");
+    var mixed = new List<PTZShot> { new() { Name = "A" }, new() { Name = "Warm", Kind = ShotKind.Exposure }, new() { Name = "B" }, new() { Name = "C" } };
+    Check(string.Join("", ShotDeckState.ReorderPositions(mixed, 2, 0).Select(s => s.Name)) == "CWarmAB", "reordering shots leaves exposure shots in their place");
+    Check(ShotDeckState.Slot('q') == 0 && ShotDeckState.Slot('G') == 9 && ShotDeckState.Slot('Z') == null
+          && ShotDeckState.Pages(9, true) == 1 && ShotDeckState.Pages(10, true) == 2 && ShotDeckState.Run(true, 3, 7, 0) == (3, 6), "deck keys, pages and runs");
 
     // Claude's tools drive a tracking camera, with a stand-in for the picture and the model.
     r = Tool("start_tracking", new JsonObject { ["camera"] = "Canon", ["allow_live"] = true });

@@ -19,8 +19,6 @@ public sealed class OperatorView : LiveView
     private static PTZController Ptz => B.Ptz;
     private static ConfigStore Store => B.Store;
 
-    /// <summary>The shot each camera was last sent to, lit in the grid.</summary>
-    private readonly Dictionary<Guid, string> _lastUsed = new();
     private readonly Pictures.Keeper _pics = new();
 
     public OperatorView() { Background = T.Bg; }
@@ -137,6 +135,10 @@ public sealed class OperatorView : LiveView
         trackBadge.Visibility = Visibility.Collapsed;
         var topRight = new StackPanel { HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 22, 22, 0) };
         topRight.Children.Add(trackBadge);
+        // The Frame panel only reaches the camera on Next, so once a tracking camera is taken
+        // Live its follow speed is nudged from here.
+        var liveSpeed = title == "LIVE" ? SpeedStepper(onVideo: true) : null;
+        if (liveSpeed != null) { liveSpeed.Margin = new Thickness(0, 12, 0, 0); liveSpeed.Visibility = Visibility.Collapsed; topRight.Children.Add(liveSpeed); }
         keys.Margin = new Thickness(0, 8, 0, 0); keys.HorizontalAlignment = HorizontalAlignment.Right;
         // Lower thirds and other keys with an NDI picture, over the shot when the key is on it.
         var keyLayer = new Grid { IsHitTestVisible = false };
@@ -192,6 +194,7 @@ public sealed class OperatorView : LiveView
 
             var ts = cam != null && Tracker.Sessions.TryGetValue(cam.Id, out var x) ? x : null;
             trackBadge.Visibility = ts != null ? Visibility.Visible : Visibility.Collapsed;
+            if (liveSpeed != null) liveSpeed.Visibility = trackBadge.Visibility;
             if (ts != null)
             {
                 var following = ts.Phase == AutoTracker.Phase.Following;
@@ -282,119 +285,18 @@ public sealed class OperatorView : LiveView
         header.Children.Add(head);
         DockPanel.SetDock(header, Dock.Top);
         p.Children.Add(header);
-        var label = T.Caps("Shots").Margin(0, 0, 0, 6);
-        DockPanel.SetDock(label, Dock.Top);
-        p.Children.Add(label);
 
-        var rows = new StackPanel();
-        if (Cams.Count == 0) rows.Children.Add(T.Text("No cameras set up yet. Add them in Engineer, Setup.", 12, null, T.InkSubtle));
-        foreach (var c in Cams) rows.Children.Add(ShotRow(c));
-        p.Children.Add(new ScrollViewer { Content = rows, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, MaxHeight = 200 });
+        // The shot deck keeps its own state (the camera shown, a drag under way) across rebuilds
+        // of this screen, so it's made once and moved into each new layout.
+        if (_deck.Parent is Panel old) old.Children.Remove(_deck);
+        p.Children.Add(_deck);
+        Live(() => _deck.Refresh());
         return p;
     }
 
+    private readonly ShotDeckView _deck = new();
+
     private static bool OnLive(PTZCamera c) => c.AtemInput is int i && S.OnLive(i);
-    private static bool OnNext(PTZCamera c) => c.AtemInput is int i && S.PreviewOf(B.Me) == i;
-
-    private UIElement ShotRow(PTZCamera c)
-    {
-        var row = new DockPanel { Margin = new Thickness(0, 0, 0, 6), LastChildFill = true };
-        var state = T.Text(" ", 9, FontWeights.Bold);
-        var camBtn = T.Button(T.Column(1, T.Text(c.Name, 13, FontWeights.Bold), state).With(s => s.HorizontalAlignment = HorizontalAlignment.Left),
-            () => { if (c.AtemInput is int i) Atem.SetPreview(i, B.Me); }, T.SurfaceSunken, T.Line, 86, 42, 8, new Thickness(8, 0, 8, 0), $"Put {c.Name} on Next");
-        camBtn.HorizontalContentAlignment = HorizontalAlignment.Left;
-        Live(() =>
-        {
-            bool live = OnLive(c), next = OnNext(c);
-            state.Text = live ? "LIVE" : next ? "NEXT" : " ";
-            state.Foreground = live ? T.Program : T.Preview;
-            camBtn.BorderBrush = live ? T.Program : next ? T.Preview : T.Line;
-            camBtn.BorderThickness = new Thickness(live || next ? 2 : 1);
-        });
-        DockPanel.SetDock(camBtn, Dock.Left);
-        row.Children.Add(camBtn);
-
-        var cells = new StackPanel { Orientation = Orientation.Horizontal };
-        foreach (var s in c.Shots.Where(s => s.Kind == ShotKind.Position))
-        {
-            var shot = s;
-            var key = $"shot:{s.Id}";
-            var cell = Cell(c, s.Name, null, key, () => { Ptz.Go(shot, c.Id); });
-            var m = T.Menu();
-            m.Items.Add(T.Item("Update to where the camera is now", () => Ptz.SaveShot("", c.Id, shot.Kind, shot.Id, ok => { if (!ok) Dialogs.Info("Not saved", NoReading); })));
-            m.Items.Add(T.Item("Rename…", () =>
-            {
-                if (Dialogs.Prompt("Rename shot", $"A new name for {shot.Name} on {c.Name}.", shot.Name) is string n && n.Length > 0)
-                    Ptz.Edit(list => { var x = list.First(y => y.Id == c.Id).Shots.FirstOrDefault(y => y.Id == shot.Id); if (x != null) x.Name = n; });
-            }));
-            m.Items.Add(new Separator());
-            m.Items.Add(T.Item("Delete…", () =>
-            {
-                if (Dialogs.Confirm($"Delete {shot.Name}?", "The shot is removed from Churchfront Video's setup. The camera isn't changed.", "Delete", danger: true))
-                    Ptz.Edit(list => list.First(y => y.Id == c.Id).Shots.RemoveAll(y => y.Id == shot.Id));
-            }, danger: true));
-            cell.ContextMenu = m;
-            cells.Children.Add(cell);
-        }
-        var exp = Ptz.ExposurePresets.TryGetValue(c.Id, out var e) ? e : new HashSet<int>();
-        foreach (var (n, nm) in Ptz.PresetNames(c).OrderBy(kv => kv.Key))
-        {
-            if (exp.Contains(n)) continue;
-            var preset = n;
-            var cell = Cell(c, nm, "ON CAMERA", $"preset:{n}", () => Ptz.Recall(preset, c.Id));
-            if (Ptz.CanSaveShots(c))
-            {
-                var m = T.Menu();
-                m.Items.Add(T.Item("Delete from camera…", () =>
-                {
-                    if (Dialogs.Confirm($"Delete \"{nm}\" from {c.Name}?", "This removes it from the camera itself, for every controller that uses it. It can't be undone.", "Delete from camera", danger: true))
-                        Ptz.DeleteCameraPreset(preset, c.Id, why => { if (why != null) Dialogs.Info("Couldn't delete that preset", why); });
-                }, danger: true));
-                cell.ContextMenu = m;
-            }
-            cells.Children.Add(cell);
-        }
-        if (Ptz.CanSaveShots(c))
-        {
-            var add = T.Button(T.Text("+", 16, FontWeights.Bold, T.AccentStrong), () =>
-            {
-                if (Dialogs.Prompt($"Save a shot on {c.Name}", "Pan, tilt and zoom, where the camera is pointing now.", "", "Pulpit") is string name)
-                    Ptz.SaveShot(name, c.Id, ShotKind.Position, null, ok => { if (!ok) Dialogs.Info("Not saved", NoReading); });
-            }, T.Transparent, T.LineStrong, 42, 42, 8, new Thickness(0), $"Save where {c.Name} is now as a new shot");
-            add.Margin = new Thickness(6, 0, 0, 0);
-            cells.Children.Add(add);
-        }
-        row.Children.Add(new ScrollViewer { Content = cells, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollBarVisibility = ScrollBarVisibility.Disabled, Margin = new Thickness(6, 0, 0, 0) });
-        return row;
-    }
-
-    private const string NoReading = "The camera didn't report its settings, so the shot wasn't saved. Check that it's answering and try again.";
-
-    private Button Cell(PTZCamera c, string title, string? subtitle, string key, Action run)
-    {
-        var titleT = T.Text(title, 13, FontWeights.SemiBold); titleT.HorizontalAlignment = HorizontalAlignment.Center;
-        var stack = new StackPanel(); stack.Children.Add(titleT);
-        TextBlock? sub = null;
-        if (subtitle != null) { sub = T.Text(subtitle, 8, FontWeights.Bold, T.InkMuted); sub.HorizontalAlignment = HorizontalAlignment.Center; stack.Children.Add(sub); }
-        var b = T.Button(stack, () =>
-        {
-            // A camera on Live asks before it moves.
-            if (OnLive(c) && !Dialogs.Confirm($"{c.Name} is on Live. Move it anyway?", "Everyone watching will see the camera move.", "Move it on Live", danger: true)) return;
-            run();
-            _lastUsed[c.Id] = key;
-        }, T.SurfaceRaised, T.Line, 106, 42, 8, new Thickness(6, 0, 6, 0));
-        b.Margin = new Thickness(6, 0, 0, 0);
-        Live(() =>
-        {
-            var used = _lastUsed.TryGetValue(c.Id, out var u) && u == key;
-            b.Background = used ? T.Accent : T.SurfaceRaised;
-            b.BorderBrush = used ? T.Accent : T.Line;
-            titleT.Foreground = used ? T.OnAction : T.Ink;
-            if (sub != null) sub.Foreground = used ? T.OnAction : T.InkMuted;
-            b.Opacity = OnLive(c) && !used ? 0.75 : 1;
-        });
-        return b;
-    }
 
     // MARK: Frame
 
@@ -493,17 +395,12 @@ public sealed class OperatorView : LiveView
         }
         col.Children.Add(sizes);
 
-        // Follow speed, right here so it can be nudged during a service.
-        var speedVal = T.Text("", 11, null, T.Ink); speedVal.FontFamily = T.Mono; speedVal.Width = 36; speedVal.TextAlignment = TextAlignment.Center;
-        Button Step(string s, double d) => T.Button(T.Text(s, 11, FontWeights.Bold), () =>
-            Store.Update(c => c.TrackSpeed = Math.Min(4, Math.Max(0.5, Math.Round((c.TrackSpeed + d) * 4) / 4))), T.SurfaceSunken, T.Transparent, 24, 20, 4, new Thickness(0));
-        var speedRow = new DockPanel { Margin = new Thickness(0, 4, 0, 0), ToolTip = "How quickly tracking cameras follow. Raise it if the camera falls behind, lower it if it overshoots." };
-        var plus = Step("+", 0.25); DockPanel.SetDock(plus, Dock.Right);
-        var val = speedVal; DockPanel.SetDock(val, Dock.Right);
-        var minus = Step("−", -0.25); DockPanel.SetDock(minus, Dock.Right);
-        speedRow.Children.Add(plus); speedRow.Children.Add(val); speedRow.Children.Add(minus);
-        speedRow.Children.Add(T.Text("Speed", 11, null, T.InkMuted).With(x => x.VerticalAlignment = VerticalAlignment.Center));
+        // Follow speed and headroom, right here so they can be nudged during a service.
+        var speedRow = SpeedStepper(onVideo: false); speedRow.Margin = new Thickness(0, 4, 0, 0);
         col.Children.Add(speedRow);
+        var headRow = HeadroomStepperRow(() => t != null && Tracker.Sessions.TryGetValue(t.Id, out var hs) ? hs.Size : null);
+        headRow.Margin = new Thickness(0, 4, 0, 0);
+        col.Children.Add(headRow);
 
         var info = T.Text("", 11, FontWeights.SemiBold, T.InkSubtle, wrap: true);
         info.Margin = new Thickness(0, 4, 0, 0);
@@ -524,7 +421,7 @@ public sealed class OperatorView : LiveView
                 : can ? "Follow the person in the middle of the shot (Ctrl+T). Or click someone on the Next picture. Moving the joystick stops tracking."
                 : Tracker.Detector == null ? Tracker.Unavailable ?? "Auto tracking isn't set up on this computer."
                 : "Auto tracking needs the camera's picture: a Canon camera's own, or an NDI picture set for its switcher input in Setup.";
-            sizes.Visibility = speedRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
+            sizes.Visibility = speedRow.Visibility = headRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
             byName.Visibility = s == null && can && StageCast.Shared.Names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             foreach (var (z, b, l) in sizeButtons)
             {
@@ -532,7 +429,6 @@ public sealed class OperatorView : LiveView
                 b.Background = on ? T.Accent : T.SurfaceSunken;
                 l.Foreground = on ? T.OnAction : T.InkMuted;
             }
-            speedVal.Text = Store.Config.TrackSpeed.ToString("0.##", CultureInfo.InvariantCulture) + "×";
             if (s != null)
             {
                 info.Text = string.Join(" · ", new[] { AutoTracker.Words(s.Phase), s.Person, s.Phase == AutoTracker.Phase.Following ? s.Size.Name() : null }.Where(w => w != null));
@@ -543,6 +439,79 @@ public sealed class OperatorView : LiveView
             else { info.Text = can ? "Or click a person on Next" : ""; info.Foreground = T.InkSubtle; }
         });
         return col;
+    }
+
+    /// <summary>Follow speed for tracking cameras, a step at a time. In the Frame panel for the
+    /// camera on Next, and over the Live picture while the camera on Live is tracking (the Frame
+    /// panel only reaches the camera on Next). Over a picture: white on a dark pill.</summary>
+    private FrameworkElement SpeedStepper(bool onVideo)
+    {
+        var scale = onVideo ? 2.0 : 1.0;   // the monitors are drawn at 1280 wide and scaled down
+        Brush fg = onVideo ? Brushes.White : T.Ink;
+        var val = T.Text("", 11 * scale, null, fg); val.FontFamily = T.Mono; val.Width = 36 * scale; val.TextAlignment = TextAlignment.Center; val.VerticalAlignment = VerticalAlignment.Center;
+        Button Step(string s, double d) => T.Button(T.Text(s, 11 * scale, FontWeights.Bold, fg), () =>
+            Store.Update(c => c.TrackSpeed = Math.Min(4, Math.Max(0.5, Math.Round((c.TrackSpeed + d) * 4, MidpointRounding.AwayFromZero) / 4))),
+            onVideo ? new SolidColorBrush(Color.FromArgb(46, 255, 255, 255)) : T.SurfaceSunken, T.Transparent, (onVideo ? 24 : 22) * scale, 20 * scale, 4 * scale, new Thickness(0));
+        var minus = Step("−", -0.25); var plus = Step("+", 0.25);
+        var label = T.Text("Speed", 11 * scale, onVideo ? FontWeights.SemiBold : null, onVideo ? Brushes.White : T.InkMuted); label.VerticalAlignment = VerticalAlignment.Center;
+        FrameworkElement el;
+        if (onVideo)
+        {
+            label.Margin = new Thickness(0, 0, 4 * scale, 0);
+            el = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(153, 0, 0, 0)), CornerRadius = new CornerRadius(14 * scale), Height = 28 * scale,
+                Padding = new Thickness(8 * scale, 0, 8 * scale, 0), HorizontalAlignment = HorizontalAlignment.Right,
+                Child = T.Row(4 * scale, label, minus, val, plus).With(r => r.VerticalAlignment = VerticalAlignment.Center),
+            };
+        }
+        else
+        {
+            var row = new DockPanel();
+            DockPanel.SetDock(plus, Dock.Right); DockPanel.SetDock(val, Dock.Right); DockPanel.SetDock(minus, Dock.Right);
+            val.Width = 30;
+            row.Children.Add(plus); row.Children.Add(val); row.Children.Add(minus); row.Children.Add(label);
+            el = row;
+        }
+        el.ToolTip = "How quickly tracking cameras follow. Raise it if the camera falls behind, lower it if it overshoots.";
+        Live(() =>
+        {
+            var sp = Store.Config.TrackSpeed;
+            val.Text = sp.ToString("0.##", CultureInfo.InvariantCulture) + "×";
+            minus.IsEnabled = sp > 0.5; plus.IsEnabled = sp < 4;
+        });
+        return el;
+    }
+
+    /// <summary>Headroom for the follow-shot size being framed, a step at a time: moves where the
+    /// eyes sit in the frame. Shown as steps from the standard ("Std", "+1", "−2"). Changes every
+    /// camera framing this size. Right-click to go back to the standard.</summary>
+    private FrameworkElement HeadroomStepperRow(Func<ShotSize?> size)
+    {
+        var val = T.Text("", 11, null, T.Ink); val.FontFamily = T.Mono; val.Width = 30; val.TextAlignment = TextAlignment.Center; val.VerticalAlignment = VerticalAlignment.Center;
+        void Nudge(int dir)
+        {
+            if (size() is not ShotSize z) return;
+            Store.Update(c => HeadroomStepper.Set(c, z, HeadroomStepper.Stepped(z.EyeLine(c), dir)));
+        }
+        var minus = T.Button(T.Text("−", 11, FontWeights.Bold), () => Nudge(-1), T.SurfaceSunken, T.Transparent, 22, 20, 4, new Thickness(0));
+        var plus = T.Button(T.Text("+", 11, FontWeights.Bold), () => Nudge(1), T.SurfaceSunken, T.Transparent, 22, 20, 4, new Thickness(0));
+        var row = new DockPanel();
+        DockPanel.SetDock(plus, Dock.Right); DockPanel.SetDock(val, Dock.Right); DockPanel.SetDock(minus, Dock.Right);
+        row.Children.Add(plus); row.Children.Add(val); row.Children.Add(minus);
+        row.Children.Add(T.Text("Headroom", 11, null, T.InkMuted).With(x => x.VerticalAlignment = VerticalAlignment.Center));
+        var m = T.Menu();
+        m.Items.Add(T.Item("Back to standard", () => { if (size() is ShotSize z) Store.Update(c => HeadroomStepper.Set(c, z, z.Standard().EyeLine ?? z.EyeLine(c))); }));
+        row.ContextMenu = m;
+        Live(() =>
+        {
+            if (size() is not ShotSize z) return;
+            var eye = z.EyeLine(Store.Config); var std = z.Standard().EyeLine ?? eye;
+            val.Text = HeadroomStepper.Label(HeadroomStepper.Steps(eye, std));
+            minus.IsEnabled = eye > HeadroomStepper.Low + 0.001; plus.IsEnabled = eye < HeadroomStepper.High - 0.001;
+            row.ToolTip = $"Space above the head on the {z.Name().ToLowerInvariant()} shot. Minus gives less, plus gives more.";
+        });
+        return row;
     }
 
     /// <summary>Starts following on a camera, at a point on its picture or the middle.</summary>

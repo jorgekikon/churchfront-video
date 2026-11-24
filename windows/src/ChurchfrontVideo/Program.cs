@@ -109,8 +109,11 @@ public static class Program
                 var mods = System.Windows.Input.ModifierKeys.None;
                 foreach (var m in parts[..^1]) mods |= m switch { "ctrl" => System.Windows.Input.ModifierKeys.Control, "shift" => System.Windows.Input.ModifierKeys.Shift, "alt" => System.Windows.Input.ModifierKeys.Alt, _ => 0 };
                 var k = parts[^1] switch { "," => System.Windows.Input.Key.OemComma, "." => System.Windows.Input.Key.OemPeriod, "1" => System.Windows.Input.Key.D1,
+                    "[" => System.Windows.Input.Key.OemOpenBrackets, "]" => System.Windows.Input.Key.OemCloseBrackets,
                     var s => Enum.TryParse<System.Windows.Input.Key>(s, true, out var parsed) ? parsed : System.Windows.Input.Key.None };
-                Console.Out.WriteLine($"key {string.Join("+", parts)}: {(win.Shortcut(k, mods) ? "used" : "not a shortcut")}; view {Booth.Shared.View}{(Booth.Shared.View == AppView.Engineer ? " " + Booth.Shared.Section : "")}; tracking {AutoTracker.Shared.Sessions.Count}");
+                // Plain keys go to the shot deck (Q to G, [ and ]), the way the booth keys do.
+                var used = mods == System.Windows.Input.ModifierKeys.None ? win.DeckKey(k) : win.Shortcut(k, mods);
+                Console.Out.WriteLine($"key {string.Join("+", parts)}: {(used ? "used" : "not used")}; view {Booth.Shared.View}{(Booth.Shared.View == AppView.Engineer ? " " + Booth.Shared.Section : "")}; tracking {AutoTracker.Shared.Sessions.Count}");
             };
             kt.Start();
         }

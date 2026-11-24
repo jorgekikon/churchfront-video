@@ -219,6 +219,21 @@ public sealed class MainWindow : Window
             B.Digit(d == 0 ? 9 : d - 1, live: (Keyboard.Modifiers & ModifierKeys.Shift) != 0);
             return true;
         }
+        return DeckKey(key);
+    }
+
+    /// <summary>Q W E R T / A S D F G: the shot deck's tiles, for the camera on Next. [ and ] turn
+    /// its page. Never for a camera that's on Live: a stray key mustn't move the shot on air.
+    /// True when the key was used.</summary>
+    public bool DeckKey(Key key)
+    {
+        if (B.CameraOnNext is not PTZCamera cam || (cam.AtemInput is int ai && B.Atem.State.OnLive(ai))) return false;
+        var deck = ShotDeckState.Shared;
+        if (key >= System.Windows.Input.Key.A && key <= System.Windows.Input.Key.Z
+            && ShotDeckState.Slot((char)('A' + (key - System.Windows.Input.Key.A))) is int slot)
+        { deck.Press(slot, cam, B.Ptz); return true; }
+        if (key == System.Windows.Input.Key.OemOpenBrackets) { deck.Turn(cam, -1, B.Ptz); return true; }
+        if (key == System.Windows.Input.Key.OemCloseBrackets) { deck.Turn(cam, 1, B.Ptz); return true; }
         return false;
     }
 

@@ -6,7 +6,8 @@ Scope for v1 ("core first"): ATEM switching, Operator view, PTZ joystick/zoom/sh
 Routing, Full switcher, Status), config.json in %APPDATA%\CueVideo, the 127.0.0.1:9911 control
 server and cuevideo-mcp.exe for Claude. Added since: auto tracking, the stage scan, the routing
 editor and NDI pictures. Every feature of the Mac app is now on Windows; what's left is testing
-on real hardware and packaging.
+on real hardware and packaging. In step with the Mac's 0.1.2 (upstream main 9892525, 2026-11-22):
+see "Synced from the Mac 0.1.2" below.
 
 ## Next: first tests on real hardware (planned 2026-11-19)
 Where things stood at the end of 2026-11-18: everything committed and on the fork's windows-port
@@ -60,7 +61,7 @@ Run these in order, with nothing live, and stop at the first surprise. Never dur
                                 SetupPage, ExposureWindow, CanonFeed (MJPEG), PoseDetector (RTMO through ONNX Runtime,
                                 TrackPictures, StillImages), Pictures (a source's picture: Canon or NDI),
                                 TopMonitors (top-bar previews), NdiPicker
-      tests/Smoke               96 checks against tools/FakeDevices (and a real NDI round trip when the
+      tests/Smoke               116 checks against tools/FakeDevices (and a real NDI round trip when the
                                 NDI runtime is installed). dotnet run --project tests/Smoke
       tests/TrackSim            closed loop with the real model and the fake Canon over photos:
                                 TrackSim.exe <photo with a person> [start pan degrees]   (auto tracking)
@@ -152,6 +153,31 @@ Run these in order, with nothing live, and stop at the first surprise. Never dur
 - Log for tuning: %APPDATA%\CueVideo\Logs\tracking.csv (same columns as the Mac's).
 - Esc (on Operator) or Ctrl+. (anywhere) stops every tracking camera (the Mac's Command-period).
 
+## Synced from the Mac 0.1.2 (2026-11-23)
+Upstream main gained three changes on 2026-11-22 (2f37b92, cd72e1d, a59fb4e); all are ported:
+- Tracking (Tracker.cs): lead room comes only from real walking, never from which way the camera pans (that
+  swung the shot past someone standing at a music stand); standing, facing only nudges it (35%). Body turn
+  (shoulders under 70% of their squared-up width, head the same way, held 0.3 s) confirms a walk that way in
+  0.25 s instead of 0.5. Walking is a sureness from -1 to 1 that builds and fades, times a held walking speed,
+  instead of an on-off switch. Every speed change is eased (EaseRate); a correction that works out under the
+  camera's slowest speed still moves it at 20 (CameraSpeed). Position, identity and the edge alarm use the
+  head-and-torso box (TrackedPerson.Core), never the arms; when arms hide the body points for a moment
+  (outline only), the head is held where it was last seen for 0.8 s. tracking.csv gains body_turn,
+  shoulder_share and walk_sure. The rules are public static methods, checked by Smoke (the Mac's EdgeAlarmTests).
+- Shot deck (CueVideo.Core/ShotDeck.cs for the logic, ChurchfrontVideo/ShotDeckView.cs for the view), in place
+  of the row-per-camera shots: one camera at a time, tabs (the tab puts that camera on Next; the Live camera's
+  tab shows its shots, each asking before it moves), a 5 by 2 grid of tiles, pages instead of scrolling.
+  Keys Q W E R T / A S D F G send the camera on Next to a tile, [ and ] turn the page (MainWindow.DeckKey;
+  never for a camera on Live). Hold a tile 0.35 s, then drag, to reorder within its run (saved shots, or the
+  camera's presets); the presets' order is saved as presetOrder on the camera.
+- Headroom stepper beside follow speed in the Frame panel (steps of 0.02 on the eye line for the size being
+  followed, "Std"/"+1"/"−2", right-click for the standard). Follow speed also shows over the Live picture
+  while the Live camera is tracking. Version 0.1.2.
+- Checked: Smoke all pass (20 new checks); the deck with fake cameras (tabs, two pages, Q and ] through
+  CUEVIDEO_KEYS, which now also takes plain keys and [ ], the Live tab's warning, long names). Not checked:
+  dragging a tile with a real mouse, and the Headroom stepper and Live speed pill on screen (they show only
+  while tracking, and no photo with people is in the repo for the fake Canon).
+
 ## Keyboard shortcuts
 - The Mac's menu shortcuts, Ctrl for ⌘, on every page (MainWindow.Shortcut): Ctrl+1 Operator, Ctrl+, Setup,
   Ctrl+Shift+S Stage scan, Ctrl+Shift+R Routing, Ctrl+Shift+K Full switcher, Ctrl+T track the camera on Next
@@ -213,3 +239,6 @@ Run these in order, with nothing live, and stop at the first surprise. Never dur
 - Manual test without touching the booth's setup: `FakeDevices.exe 9932 --canon --picture <photo>`, a test
   config with a Canon on 127.0.0.1:8091 (atemInput 2), then the app with CUEVIDEO_CONFIG, CUEVIDEO_HOST=127.0.0.1,
   CUEVIDEO_PORT=9932. Buttons can be pressed with Windows UI Automation (InvokePattern) on a locked screen.
+- Keeping up with the Mac: last synced at upstream 9892525 (0.1.2). `git fetch origin` then
+  `git log 9892525..origin/main` lists what's new since (upstream isn't merged into windows-port, so
+  `windows-port..origin/main` would keep listing the commits already ported).
