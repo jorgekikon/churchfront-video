@@ -283,8 +283,24 @@ After services the Canons are put in standby from Companion. The app now powers 
   - Any tracking on the camera is stopped first.
   - Claude has the `standby_cameras` tool, which is refused in those cases unless `allow_live` is set.
   - Real Canons in standby turn down open.cgi but still answer info.cgi, so the app reads f.standby without a session.
-- Checked: smoke (7 checks) against the fake Canon, plus the real app's button clicked against the fake Canon.
-  Not yet tried on the real Canons.
+- Checked: smoke tests against the fake Canon, the app's buttons clicked against it, and both Wake and Standby
+  used on the real Canons on 2026-11-24.
+
+## Engineer PIN (2026-11-24, Windows only)
+- A 4–8 digit PIN on the Engineer pages that could disturb the livestream: Stage scan, Routing, Full switcher
+  and Setup. Status stays open. With no PIN set (the default), everything is open as before.
+- Set, change or remove it in Setup → Engineer PIN.
+- A locked page shows a PIN pad in place of its content, however it was opened: the sidebar, a shortcut, the
+  gear, or Claude's show_window. Locked pages show 🔒 in the sidebar.
+- It locks again on going back to Operator, or after 10 minutes with no click or key in Engineer
+  (`EngineerLock.Touch` from MainWindow). After 5 wrong PINs it waits 30 seconds.
+- Storage: `%APPDATA%\CueVideo\engineer-lock.json` holds a salt and a PBKDF2-SHA256 hash (120,000 rounds),
+  not the PIN, and not in config.json. Forgotten PIN: delete that file.
+- Self-tests never touch it; they use `CUEVIDEO_LOCK_FILE`, or no lock at all.
+- Not covered: Claude's tools (through cuevideo-mcp), and the Operator view (Record and Stream already ask first).
+- Code: `src/CueVideo.Core/EngineerLock.cs`, `LockPage` in EngineerView.cs, and `Pin()` in SetupPage.cs.
+  Checked: 13 smoke checks, plus the PIN pad, a wrong PIN, the right PIN, the PIN tab, and re-locking after
+  Operator, all clicked in a test copy of the app.
 
 ## Powering devices on (2026-11-24): Kasa plugs are a Claude Code plug-in, not part of the app
 - The user chose to keep smart-plug control out of the app. It's in `C:\claude-work\kasa-plugs`, a separate

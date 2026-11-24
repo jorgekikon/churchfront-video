@@ -76,6 +76,10 @@ public sealed class MainWindow : Window
         B.Ptz.Changed += () => _dirty = true;
         B.Store.Changed += () => _dirty = true;
         B.Changed += () => _dirty = true;
+        B.Lock.Changed += () => _dirty = true;
+        // Any click or key in Engineer keeps it unlocked for another 10 minutes.
+        PreviewMouseDown += (_, _) => { if (B.View == AppView.Engineer) B.Lock.Touch(); };
+        PreviewKeyDown += (_, _) => { if (B.View == AppView.Engineer) B.Lock.Touch(); };
         CanonFeedHub.FrameArrived += () => _dirty = true;
         AutoTracker.Shared.Changed += () => _dirty = true;
         StageScan.Shared.Changed += () => _dirty = true;

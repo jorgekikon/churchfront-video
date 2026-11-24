@@ -29,6 +29,8 @@ public sealed class Booth
     public PTZController Ptz { get; } = new();
     public ConfigStore Store { get; } = new();
     public Prefs Prefs { get; } = Prefs.Load();
+    /// <summary>The PIN on the Engineer pages that could disturb the livestream.</summary>
+    public EngineerLock Lock { get; } = new();
 
     /// <summary>Raised on the main thread when Me, View or Section change.</summary>
     public event Action? Changed;
@@ -48,6 +50,8 @@ public sealed class Booth
             var old = _view;
             _view = value;
             if (old == AppView.Operate) { HeldArrows.Clear(); Ptz.StopAllManual(); }
+            // Going back to Operator locks Engineer again.
+            if (old == AppView.Engineer) Lock.Lock();
             Changed?.Invoke();
         }
     }

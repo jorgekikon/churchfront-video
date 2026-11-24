@@ -168,6 +168,45 @@ try
     Check(r["error"] != null, "an unknown key button is refused");
     r = Tool("set_recording", new JsonObject());
     Check(r["error"]?.ToString().Contains("Nothing was changed") == true, "set_recording without on changes nothing");
+    // MARK: Engineer PIN (a temporary file and a fake clock; never the real engineer-lock.json)
+    {
+        var lockFile = Path.Combine(Path.GetTempPath(), $"cv-lock-{Guid.NewGuid():N}.json");
+        var now = DateTime.UtcNow;
+        var lk = new EngineerLock(lockFile) { Clock = () => now };
+        Check(!lk.HasPin && lk.IsOpen && !lk.IsLocked(EngineerSection.Setup), "with no PIN every Engineer page is open");
+        Check(lk.SetPin("12a4") != null && lk.SetPin("123") != null && lk.SetPin("123456789") != null && !lk.HasPin, "a PIN must be 4 to 8 digits");
+        Check(lk.SetPin("2468") == null && lk.HasPin && File.Exists(lockFile) && !File.ReadAllText(lockFile).Contains("2468"), "sets a PIN, kept only as a hash");
+        lk.Lock();
+        Check(lk.IsLocked(EngineerSection.Setup) && lk.IsLocked(EngineerSection.Routing) && lk.IsLocked(EngineerSection.Switcher) && lk.IsLocked(EngineerSection.Scan) && !lk.IsLocked(EngineerSection.Status), "locks Setup, Routing, Full switcher and Stage scan; Status stays open");
+        var lk2 = new EngineerLock(lockFile) { Clock = () => now };
+        Check(lk2.HasPin && !lk2.IsOpen, "the PIN is still set after the app restarts, and it starts locked");
+        Check(lk2.Unlock("1111") == "Wrong PIN." && !lk2.IsOpen, "a wrong PIN doesn't open it");
+        Check(lk2.Unlock("2468") == null && lk2.IsOpen, "the right PIN opens it");
+        now += TimeSpan.FromMinutes(9); lk2.Touch();
+        now += TimeSpan.FromMinutes(9);
+        Check(lk2.IsOpen, "use keeps it open past 10 minutes");
+        now += TimeSpan.FromMinutes(10.5);
+        Check(!lk2.IsOpen, "10 minutes without use locks it again");
+        for (int i = 0; i < 4; i++) lk2.Unlock("0000");
+        var fifth = lk2.Unlock("0000");
+        Check(fifth?.Contains("wait") == true && lk2.Unlock("2468")?.Contains("Try again") == true && !lk2.IsOpen, "after 5 wrong PINs even the right one waits");
+        now += TimeSpan.FromSeconds(31);
+        Check(lk2.Unlock("2468") == null && lk2.IsOpen, "and works after 30 seconds");
+        Check(lk2.RemovePin() == null && !File.Exists(lockFile) && !lk2.HasPin && lk2.IsOpen, "removing the PIN opens everything");
+        var test = new EngineerLock(selfTest: true);
+        Check(!test.HasPin && test.SetPin("1234") != null, "a self-test never reads or writes the real PIN");
+        var leave = OnMain(() =>
+        {
+            var b = Booth.Shared;
+            b.View = AppView.Engineer;
+            var was = b.Lock.IsOpen;
+            b.View = AppView.Operate;
+            return was;
+        });
+        Check(leave, "going back to Operator runs the lock (no PIN in a self-test, so it stays open)");
+        try { File.Delete(lockFile); } catch { }
+    }
+
     // MARK: Canon standby (put there after services, from Companion) and waking it
     Check(Wait(() => ptz.Power.GetValueOrDefault(canon.Id) == "idle") && OnMain(() => ptz.Sleeping.Count == 0), "reads a Canon's power state: awake");
     r = Tool("wake_cameras");

@@ -16,7 +16,7 @@ internal sealed class SetupPage : LiveView
     private static ConfigStore Store => B.Store;
     private static ATEMState S => B.Atem.State;
     private string _tab = "Switcher";
-    private static readonly string[] Tabs = { "Switcher", "Sources", "Key buttons", "Cameras", "Claude", "Setup file" };
+    private static readonly string[] Tabs = { "Switcher", "Sources", "Key buttons", "Cameras", "Claude", "Engineer PIN", "Setup file" };
 
     protected override string StructureKey() =>
         $"{_tab}|{Store.Config.Signature()}|{string.Join(",", S.Inputs.Values.Select(i => i.Id + i.Long))}|{S.MeCount}|{S.KeyerCount}|{S.DskCount}|{Store.FileError}";
@@ -31,6 +31,7 @@ internal sealed class SetupPage : LiveView
             "Key buttons" => "On and off buttons for keys, such as lower thirds, under Fade and Cut.",
             "Cameras" => "The PTZ cameras, the switcher input each one feeds, and how to reach them.",
             "Claude" => "Let Claude set up and run Churchfront Video for you.",
+            "Engineer PIN" => "A PIN on the Engineer pages that could disturb the livestream.",
             _ => "Everything here is kept in one plain file that a person or Claude can read and edit.",
         }));
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
@@ -50,6 +51,7 @@ internal sealed class SetupPage : LiveView
             "Key buttons" => Keys(),
             "Cameras" => Cameras(),
             "Claude" => Claude(),
+            "Engineer PIN" => Pin(),
             _ => SetupFile(),
         });
         return col;
@@ -335,6 +337,48 @@ internal sealed class SetupPage : LiveView
                 T.Small("Disconnect", () => { if (ClaudeConnect.Disconnect() is string err) Dialogs.Info("Couldn't disconnect", err); Refresh(force: true); }).With(b => b.IsEnabled = state is ClaudeConnect.State.Connected or ClaudeConnect.State.StalePath),
                 T.Small("Copy a first message", () => { try { Clipboard.SetText(ClaudeConnect.FirstPrompt); } catch { } })),
             T.Text($"Claude's settings: {ClaudeConnect.ConfigPath}", 11, null, T.InkSubtle, wrap: true));
+        return T.Card(col).With(c => c.HorizontalAlignment = HorizontalAlignment.Left);
+    }
+
+    // MARK: Engineer PIN
+
+    private UIElement Pin()
+    {
+        PasswordBox Box() => new PasswordBox
+        {
+            Width = 160, Height = 30, MaxLength = EngineerLock.MaxDigits, Background = T.SurfaceSunken, Foreground = T.Ink, BorderBrush = T.Line, CaretBrush = T.Ink,
+            Padding = new Thickness(6, 4, 6, 4), VerticalContentAlignment = VerticalAlignment.Center,
+        }.With(b => { b.PreviewTextInput += (_, e) => e.Handled = !e.Text.All(char.IsAsciiDigit); DataObject.AddPastingHandler(b, (_, e) => e.CancelCommand()); });
+        var first = Box(); var again = Box();
+        System.Windows.Automation.AutomationProperties.SetName(first, "New PIN");
+        System.Windows.Automation.AutomationProperties.SetName(again, "New PIN again");
+        var has = B.Lock.HasPin;
+        var col = T.Column(12,
+            T.Text(has
+                ? "A PIN is set. Stage scan, Routing, Full switcher and Setup ask for it. Status stays open. They lock again when someone goes back to Operator, or after 10 minutes without use."
+                : "No PIN yet, so every Engineer page is open to anyone. Set one to lock Stage scan, Routing, Full switcher and Setup (Status stays open).",
+                13, null, has ? T.Success : T.InkMuted, wrap: true).With(t => t.MaxWidth = 640),
+            T.Row(12, Label(has ? "New PIN" : "PIN", 120), first),
+            T.Row(12, Label("Again", 120), again),
+            T.Row(8,
+                T.Primary(has ? "Change PIN" : "Set PIN", () =>
+                {
+                    if (EngineerLock.Problem(first.Password) is string p) { Dialogs.Info("PIN not set", p); return; }
+                    if (first.Password != again.Password) { Dialogs.Info("PIN not set", "The two PINs don't match."); return; }
+                    if (B.Lock.SetPin(first.Password) is string why) { Dialogs.Info("PIN not set", why); return; }
+                    first.Clear(); again.Clear();
+                    Dialogs.Info("PIN set", "Stage scan, Routing, Full switcher and Setup now ask for this PIN. Keep it somewhere safe.");
+                    Refresh(force: true);
+                }),
+                T.Small("Remove PIN", () =>
+                {
+                    if (!Dialogs.Confirm("Remove the PIN?", "Every Engineer page will be open to anyone at the booth.", "Remove", danger: true)) return;
+                    if (B.Lock.RemovePin() is string why) Dialogs.Info("PIN not removed", why);
+                    Refresh(force: true);
+                }, danger: true).With(b => b.IsEnabled = has)),
+            T.Text($"{EngineerLock.MinDigits} to {EngineerLock.MaxDigits} digits. Kept on this computer only, as a one-way hash; it isn't in the setup file. Claude's tools aren't affected by the PIN.",
+                12, null, T.InkSubtle, wrap: true).With(t => t.MaxWidth = 640));
+        if (Store.ReadOnly) col.Children.Add(T.Text("Running a self-test: the real PIN is never read or changed here.", 12, null, T.Warning));
         return T.Card(col).With(c => c.HorizontalAlignment = HorizontalAlignment.Left);
     }
 

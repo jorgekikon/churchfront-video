@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using CueATEM;
 
@@ -16,6 +17,7 @@ public sealed class EngineerView : Grid
     private readonly ContentControl _page = new();
     private LiveView? _current;
     private EngineerSection? _shown;
+    private bool _shownLock;
     private readonly List<(EngineerSection S, Button B, TextBlock T1, TextBlock T2)> _tabs = new();
     private readonly TextBlock _liveName = T.Text("", 13, FontWeights.SemiBold), _nextName = T.Text("", 13, FontWeights.SemiBold);
 
@@ -77,18 +79,24 @@ public sealed class EngineerView : Grid
         var s = B.Atem.State;
         _liveName.Text = B.Store.Label(s.ProgramOf(B.Me), s);
         _nextName.Text = B.Store.Label(s.PreviewOf(B.Me), s);
+        var locked = B.Lock.HasPin && !B.Lock.IsOpen;
         foreach (var (sec, b, t1, t2) in _tabs)
         {
             var on = sec == B.Section;
             b.Background = on ? T.Accent : T.Transparent;
             t1.Foreground = on ? T.OnAction : T.Ink;
             t2.Foreground = on ? T.OnAction : T.InkMuted;
+            t1.Text = (locked && EngineerLock.IsLockable(sec) ? "🔒 " : "") + sec.Title();
         }
-        if (_shown != B.Section)
+        // A locked page shows the PIN pad instead, whichever way it was opened (sidebar,
+        // shortcut, the gear, or Claude's show_window).
+        var showLock = B.Lock.IsLocked(B.Section);
+        if (_shown != B.Section || _shownLock != showLock)
         {
             _current?.Teardown();
             _shown = B.Section;
-            _current = B.Section switch
+            _shownLock = showLock;
+            _current = showLock ? new LockPage() : B.Section switch
             {
                 EngineerSection.Routing => new RoutingPage(),
                 EngineerSection.Switcher => new SwitcherPage(),
@@ -109,6 +117,71 @@ public sealed class EngineerView : Grid
         if (right != null) { DockPanel.SetDock(right, Dock.Right); d.Children.Add(right); }
         d.Children.Add(T.Column(4, T.Text(title, 24, FontWeights.Bold), T.Text(subtitle, 13, null, T.InkMuted, wrap: true)));
         return d;
+    }
+}
+
+// MARK: - Locked
+
+/// <summary>What a locked Engineer page shows: a PIN box and a number pad. Typed digits work too.</summary>
+internal sealed class LockPage : LiveView
+{
+    private static Booth B => Booth.Shared;
+    private string _problem = "";
+
+    protected override string StructureKey() => $"{B.Section}|{_problem}";
+
+    protected override UIElement Build()
+    {
+        var box = new PasswordBox
+        {
+            Width = 230, Height = 44, FontSize = 22, MaxLength = EngineerLock.MaxDigits, HorizontalContentAlignment = HorizontalAlignment.Center,
+            VerticalContentAlignment = VerticalAlignment.Center, Background = T.SurfaceSunken, Foreground = T.Ink, BorderBrush = T.LineStrong, CaretBrush = T.Ink,
+        };
+        System.Windows.Automation.AutomationProperties.SetName(box, "PIN");
+        // Digits only.
+        box.PreviewTextInput += (_, e) => e.Handled = !e.Text.All(char.IsAsciiDigit);
+        DataObject.AddPastingHandler(box, (_, e) => e.CancelCommand());
+        var problem = T.Text(_problem, 13, FontWeights.SemiBold, T.Danger);
+        void Try()
+        {
+            var why = B.Lock.Unlock(box.Password);
+            box.Clear();
+            if (why == null) { _problem = ""; return; }   // the Engineer view swaps this page for the real one
+            _problem = why;
+            Refresh(force: true);
+        }
+        box.KeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Enter) Try(); };
+
+        var pad = new UniformGrid { Columns = 3, Width = 230 };
+        foreach (var k in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "Unlock" })
+        {
+            var key = k;
+            Button b = key == "Unlock"
+                ? T.Primary("Unlock", Try)
+                : T.Button(T.Text(key, 20, FontWeights.SemiBold), () =>
+                {
+                    if (key == "⌫") { if (box.Password.Length > 0) box.Password = box.Password[..^1]; }
+                    else if (box.Password.Length < EngineerLock.MaxDigits) box.Password += key;
+                    box.Focus();
+                }, T.SurfaceRaised, T.Line, h: 52, radius: 8);
+            b.Margin = new Thickness(3);
+            if (key == "Unlock") b.Height = 52;
+            pad.Children.Add(b);
+        }
+
+        var col = T.Column(14,
+            T.Text("🔒", 40).With(t => t.HorizontalAlignment = HorizontalAlignment.Center),
+            T.Text($"{B.Section.Title()} is locked", 22, FontWeights.Bold).With(t => t.HorizontalAlignment = HorizontalAlignment.Center),
+            T.Text("It can change what the livestream and the screens show. Enter the PIN to open the Engineer pages. They lock again when you go back to Operator, or after 10 minutes without use. Status stays open.",
+                13, null, T.InkMuted, wrap: true).With(t => { t.MaxWidth = 420; t.TextAlignment = TextAlignment.Center; t.HorizontalAlignment = HorizontalAlignment.Center; }),
+            box.With(x => x.HorizontalAlignment = HorizontalAlignment.Center),
+            problem.With(t => t.HorizontalAlignment = HorizontalAlignment.Center),
+            pad.With(p => p.HorizontalAlignment = HorizontalAlignment.Center),
+            T.Small("Open Status", () => B.Show(EngineerSection.Status)).With(b => b.HorizontalAlignment = HorizontalAlignment.Center));
+        col.Margin = new Thickness(0, 30, 0, 0);
+        col.HorizontalAlignment = HorizontalAlignment.Center;
+        Loaded += (_, _) => box.Focus();
+        return col;
     }
 }
 
