@@ -20,6 +20,7 @@ public static class Program
         }
 
         var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
+        T.InstallStyles(app);   // the dark look for every dropdown and right-click menu
         MainThread.Poster = a => app.Dispatcher.BeginInvoke(a);
         MainThread.IsMainCheck = () => app.Dispatcher.CheckAccess();
         app.DispatcherUnhandledException += (_, e) => { Log(e.Exception); e.Handled = true; };

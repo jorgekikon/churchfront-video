@@ -209,6 +209,85 @@ public static class T
         return b;
     }
 
+    /// <summary>App-wide looks for things made in many places: every dropdown and right-click menu
+    /// gets the dark look (Windows' own menu has a white icon gutter and light dividers). Call once
+    /// at start, before any window.</summary>
+    public static void InstallStyles(Application app)
+    {
+        // The menu: a dark rounded panel that scrolls when long (NDI source lists).
+        var menu = new ControlTemplate(typeof(ContextMenu));
+        var mb = new FrameworkElementFactory(typeof(Border));
+        mb.SetValue(Border.BackgroundProperty, SurfaceRaised);
+        mb.SetValue(Border.BorderBrushProperty, LineStrong);
+        mb.SetValue(Border.BorderThicknessProperty, new Thickness(1));
+        mb.SetValue(Border.CornerRadiusProperty, new CornerRadius(8));
+        mb.SetValue(Border.PaddingProperty, new Thickness(4));
+        var sv = new FrameworkElementFactory(typeof(ScrollViewer));
+        sv.SetValue(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Auto);
+        sv.SetValue(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Disabled);
+        sv.SetValue(FrameworkElement.MaxHeightProperty, 520.0);
+        sv.AppendChild(new FrameworkElementFactory(typeof(ItemsPresenter)));
+        mb.AppendChild(sv);
+        menu.VisualTree = mb;
+        var menuStyle = new Style(typeof(ContextMenu));
+        menuStyle.Setters.Add(new Setter(Control.TemplateProperty, menu));
+        menuStyle.Setters.Add(new Setter(Control.ForegroundProperty, Ink));
+        menuStyle.Setters.Add(new Setter(Control.FontFamilyProperty, Sans));
+        menuStyle.Setters.Add(new Setter(Control.FontSizeProperty, 13.0));
+        menuStyle.Setters.Add(new Setter(ContextMenu.HasDropShadowProperty, false));
+        app.Resources[typeof(ContextMenu)] = menuStyle;
+
+        // An item: its text, a ✓ when it's the chosen one (only on items that can be chosen),
+        // a soft highlight under the mouse, and dimmed when it can't be picked.
+        var item = new ControlTemplate(typeof(MenuItem));
+        var ib = new FrameworkElementFactory(typeof(Border), "bd");
+        ib.SetValue(Border.BackgroundProperty, Transparent);
+        ib.SetValue(Border.CornerRadiusProperty, new CornerRadius(5));
+        ib.SetValue(Border.PaddingProperty, new Thickness(10, 6, 14, 6));
+        var row = new FrameworkElementFactory(typeof(DockPanel));
+        var check = new FrameworkElementFactory(typeof(TextBlock), "check");
+        check.SetValue(TextBlock.TextProperty, "✓");
+        check.SetValue(TextBlock.FontWeightProperty, FontWeights.Bold);
+        check.SetValue(TextBlock.ForegroundProperty, AccentStrong);
+        check.SetValue(FrameworkElement.WidthProperty, 18.0);
+        check.SetValue(DockPanel.DockProperty, Dock.Left);
+        row.AppendChild(check);
+        var cp = new FrameworkElementFactory(typeof(ContentPresenter));
+        cp.SetValue(ContentPresenter.ContentSourceProperty, "Header");
+        cp.SetValue(ContentPresenter.RecognizesAccessKeyProperty, false);
+        cp.SetValue(FrameworkElement.VerticalAlignmentProperty, VerticalAlignment.Center);
+        row.AppendChild(cp);
+        ib.AppendChild(row);
+        item.VisualTree = ib;
+        var notChecked = new Trigger { Property = MenuItem.IsCheckedProperty, Value = false };
+        notChecked.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Hidden, "check"));
+        var notCheckable = new Trigger { Property = MenuItem.IsCheckableProperty, Value = false };
+        notCheckable.Setters.Add(new Setter(UIElement.VisibilityProperty, Visibility.Collapsed, "check"));
+        var hot = new Trigger { Property = MenuItem.IsHighlightedProperty, Value = true };
+        hot.Setters.Add(new Setter(Border.BackgroundProperty, AccentSoft, "bd"));
+        var off = new Trigger { Property = UIElement.IsEnabledProperty, Value = false };
+        off.Setters.Add(new Setter(UIElement.OpacityProperty, 0.55));
+        item.Triggers.Add(notChecked); item.Triggers.Add(notCheckable); item.Triggers.Add(hot); item.Triggers.Add(off);
+        var itemStyle = new Style(typeof(MenuItem));
+        itemStyle.Setters.Add(new Setter(Control.TemplateProperty, item));
+        itemStyle.Setters.Add(new Setter(Control.ForegroundProperty, Ink));
+        itemStyle.Setters.Add(new Setter(Control.BackgroundProperty, Transparent));
+        itemStyle.Setters.Add(new Setter(FrameworkElement.CursorProperty, Cursors.Hand));
+        app.Resources[typeof(MenuItem)] = itemStyle;
+
+        // A divider between groups of items.
+        var sep = new Style(typeof(Separator));
+        var st = new ControlTemplate(typeof(Separator));
+        var line = new FrameworkElementFactory(typeof(Border));
+        line.SetValue(FrameworkElement.HeightProperty, 1.0);
+        line.SetValue(Border.BackgroundProperty, Line);
+        line.SetValue(FrameworkElement.MarginProperty, new Thickness(6, 4, 6, 4));
+        st.VisualTree = line;
+        sep.Setters.Add(new Setter(Control.TemplateProperty, st));
+        app.Resources[MenuItem.SeparatorStyleKey] = sep;
+        app.Resources[typeof(Separator)] = sep;
+    }
+
     public static ContextMenu Menu() => new() { Background = SurfaceRaised, Foreground = Ink, BorderBrush = LineStrong, FontFamily = Sans, FontSize = 13 };
     public static MenuItem Item(string label, Action pick, bool danger = false)
     {
