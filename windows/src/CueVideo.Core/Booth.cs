@@ -105,6 +105,36 @@ public sealed class Booth
         if (live) Atem.SetProgram(src[index].Input, Me); else Atem.SetPreview(src[index].Input, Me);
     }
 
+    /// <summary>Why putting these cameras in standby now could hurt the service (one on Live,
+    /// the switcher streaming or recording), or an empty list.</summary>
+    public List<string> StandbyWarnings(IEnumerable<PTZCamera> cams)
+    {
+        var s = Atem.State;
+        var w = cams.Where(c => c.AtemInput is int i && s.OnLive(i)).Select(c => $"{c.Name} is on Live.").ToList();
+        if (s.HasStreaming && (s.Streaming || s.StreamConnecting)) w.Add("The switcher is streaming.");
+        if (s.HasRecording && s.Recording) w.Add("The switcher is recording.");
+        return w;
+    }
+
+    /// <summary>Stops tracking on these cameras and puts them in standby. Calls back on main
+    /// with each camera that didn't take it and why (empty when all did).</summary>
+    public void PutInStandby(List<PTZCamera> cams, Action<Dictionary<string, string>> done)
+    {
+        var failed = new Dictionary<string, string>();
+        var left = cams.Count;
+        if (left == 0) { done(failed); return; }
+        foreach (var c in cams)
+        {
+            var cam = c;
+            AutoTracker.Shared.Stop(cam.Id);
+            Ptz.Standby(cam.Id, why =>
+            {
+                if (why != null) failed[cam.Name] = why;
+                if (--left == 0) done(failed);
+            });
+        }
+    }
+
     /// <summary>Wires the parts together. Call once on the main thread.</summary>
     public void Start()
     {

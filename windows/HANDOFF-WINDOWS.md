@@ -277,7 +277,12 @@ After services the Canons are put in standby from Companion. The app now powers 
   - A "⏻ Wake" button on that camera's row in Setup → Cameras.
   - A status line in Frame the shot.
 - For Claude: the `wake_cameras` tool, and `power` in `get_status`.
-- Nothing puts a camera into standby; Companion still does that.
+- Standby (2026-11-24, after waking worked on the real Canons):
+  - Setup → Cameras: each Canon's row has a power button (Wake or Standby), and there's a "Put all cameras in standby…" button.
+  - It always asks first. If a camera is on Live, or the switcher is streaming or recording, it warns and the button reads "Standby anyway".
+  - Any tracking on the camera is stopped first.
+  - Claude has the `standby_cameras` tool, which is refused in those cases unless `allow_live` is set.
+  - Real Canons in standby turn down open.cgi but still answer info.cgi, so the app reads f.standby without a session.
 - Checked: smoke (7 checks) against the fake Canon, plus the real app's button clicked against the fake Canon.
   Not yet tried on the real Canons.
 

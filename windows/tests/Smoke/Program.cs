@@ -172,8 +172,20 @@ try
     Check(Wait(() => ptz.Power.GetValueOrDefault(canon.Id) == "idle") && OnMain(() => ptz.Sleeping.Count == 0), "reads a Canon's power state: awake");
     r = Tool("wake_cameras");
     Check(r["done"]?.ToString().Contains("No camera is in standby") == true, "wake_cameras with nothing asleep sends nothing");
-    using (var h = new HttpClient()) h.GetStringAsync("http://127.0.0.1:8091/-wvhttp-01-/standby.cgi?cmd=standby").Wait();   // as Companion does
+    // The Canon (input 2) is on Live here only if the switcher says so; put it on Live to check the guard.
+    var liveBefore = OnMain(() => atem.State.ProgramOf(0));
+    OnMain(() => { atem.SetProgram(2, 0); return 0; });
+    Check(Wait(() => atem.State.ProgramOf(0) == 2), "the Canon is on Live");
+    r = Tool("standby_cameras", new JsonObject { ["cameras"] = new JsonArray("Canon") });
+    Check(r["error"]?.ToString().Contains("on Live") == true && OnMain(() => ptz.Power[canon.Id]) == "idle" && !fakeLog.Any(l => l.Contains("cmd=standby")), "standby_cameras refuses a camera on Live and sends nothing");
+    var back = liveBefore is int lb && lb != 2 ? lb : 1;
+    OnMain(() => { atem.SetProgram(back, 0); return 0; });
+    Check(Wait(() => atem.State.ProgramOf(0) == back), "the Canon is off Live again");
+    r = Tool("standby_cameras");
+    Check(r["standby"]?.AsArray().Count == 1 && r["standby"]![0]!.ToString() == "Canon" && fakeLog.Any(l => l.Contains("standby.cgi?cmd=standby")), "standby_cameras puts every Canon that's on in standby");
     Check(Wait(() => ptz.InStandby(canon) && ptz.Power[canon.Id] == "standby", 15), "sees the Canon go into standby");
+    r = Tool("standby_cameras");
+    Check(r["done"]?.ToString().Contains("No Canon camera is on") == true, "standby_cameras with every Canon asleep sends nothing more");
     Check(Wait(() => !ptz.Online.Contains(canon.Id), 15) && OnMain(() => ptz.InStandby(canon) && ptz.Sleeping.Count == 1), "still knows it's in standby while it turns down sessions, as a real Canon does");
     Check(Tool("get_status")["cameras"]!.AsArray().Any(c => c!["name"]!.ToString() == "Canon" && c["power"]?.ToString() == "standby"), "get_status gives the power state");
     r = Tool("wake_cameras");

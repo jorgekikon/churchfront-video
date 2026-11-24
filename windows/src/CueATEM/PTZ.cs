@@ -57,6 +57,8 @@ internal interface IPTZLink
     /// <summary>Wakes the camera from standby. Calls back with null when the camera took the
     /// command, or why not.</summary>
     void Wake(Action<string?> done) => done("This camera can't be woken from standby by Churchfront Video.");
+    /// <summary>Puts the camera in standby. Calls back with null when the camera took the command, or why not.</summary>
+    void Sleep(Action<string?> done) => done("This camera can't be put in standby by Churchfront Video.");
 }
 
 // MARK: - VISCA
@@ -603,10 +605,15 @@ internal sealed class CanonLink : IPTZLink
     /// <summary>Wakes the camera from standby, as Companion's Canon module does (standby.cgi
     /// cmd=idle; cmd=standby puts it back). Needs no session. If the camera asks for a login,
     /// the admin login saved in Setup is used. The state is read back over the next 20 seconds.</summary>
-    public void Wake(Action<string?> done)
+    public void Wake(Action<string?> done) => SetStandby(false, done);
+
+    /// <summary>Puts the camera in standby (standby.cgi cmd=standby), as Companion does after services.</summary>
+    public void Sleep(Action<string?> done) => SetStandby(true, done);
+
+    private void SetStandby(bool sleep, Action<string?> done)
     {
         if (_camera.Host.Length == 0) { done("The camera has no address."); return; }
-        var url = Base + "standby.cgi?cmd=idle";
+        var url = Base + $"standby.cgi?cmd={(sleep ? "standby" : "idle")}";
         var login = CameraLogin.Load();
         Task.Run(async () =>
         {
@@ -1142,16 +1149,27 @@ public sealed class PTZController
     public List<PTZCamera> Sleeping => _cameras.Where(c => c.Host.Length > 0 && InStandby(c)).ToList();
 
     /// <summary>Wakes a camera from standby (Canon only). Calls back on main with null when the camera took it.</summary>
-    public void Wake(Guid id, Action<string?>? done = null)
+    public void Wake(Guid id, Action<string?>? done = null) => SetStandby(id, false, done);
+
+    /// <summary>Puts a camera in standby (Canon only), after stopping anything it's doing.
+    /// Calls back on main with null when the camera took it. Callers check Live first.</summary>
+    public void Standby(Guid id, Action<string?>? done = null) => SetStandby(id, true, done);
+
+    /// <summary>Canon cameras that are awake and can be put in standby.</summary>
+    public List<PTZCamera> Awake => _cameras.Where(c => c.Proto == VISCAProtocol.CanonXC && c.Host.Length > 0 && Power.TryGetValue(c.Id, out var p) && p == "idle").ToList();
+
+    private void SetStandby(Guid id, bool sleep, Action<string?>? done)
     {
+        if (sleep) StopManual(id);
         _queue.Post(() =>
         {
             if (!_links.TryGetValue(id, out var l)) { MainThread.Post(() => done?.Invoke("That camera isn't set up.")); return; }
-            l.Wake(why => MainThread.Post(() =>
+            Action<string?> back = why => MainThread.Post(() =>
             {
-                if (why == null) { Power[id] = "switch_idle"; Notify(); }
+                if (why == null) { Power[id] = sleep ? "switch_standby" : "switch_idle"; Notify(); }
                 done?.Invoke(why);
-            }));
+            });
+            if (sleep) l.Sleep(back); else l.Wake(back);
         });
     }
 

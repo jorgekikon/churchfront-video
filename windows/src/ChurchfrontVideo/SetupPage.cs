@@ -236,15 +236,25 @@ internal sealed class SetupPage : LiveView
                 if (Dialogs.Confirm($"Delete {c.Name}?", "The camera and its saved shots are removed from Churchfront Video. The camera itself isn't changed.", "Delete", danger: true))
                     B.Ptz.Edit(l => l.RemoveAll(y => y.Id == id));
             }, danger: true);
-            // A Canon put in standby (after services) can be woken from here.
-            var wake = T.Small("⏻ Wake", () => B.Ptz.Wake(id, why => { if (why != null) Dialogs.Info($"{c.Name} didn't wake", why); }), "Power the camera on from standby");
+            // A Canon's power: wake it from standby, or put it in standby after a service.
+            var powerText = T.Text("", 12, FontWeights.SemiBold);
+            var power = T.Button(powerText, () =>
+            {
+                var cam = B.Ptz.Camera(id);
+                if (cam == null) return;
+                if (B.Ptz.InStandby(cam)) B.Ptz.Wake(id, why => { if (why != null) Dialogs.Info($"{cam.Name} didn't wake", why); });
+                else Standby(new List<PTZCamera> { cam });
+            }, T.SurfaceRaised, T.Line, h: 28, radius: 6, pad: new Thickness(10, 0, 10, 0));
             Live(() =>
             {
                 var cam = B.Ptz.Camera(id);
-                wake.Visibility = cam != null && (B.Ptz.InStandby(cam) || B.Ptz.Waking(cam)) ? Visibility.Visible : Visibility.Collapsed;
-                wake.IsEnabled = cam != null && B.Ptz.InStandby(cam);
+                var state = cam == null ? null : B.Ptz.Power.GetValueOrDefault(id);
+                power.Visibility = state == null ? Visibility.Collapsed : Visibility.Visible;
+                powerText.Text = state switch { "standby" => "⏻ Wake", "idle" => "Standby", "switch_idle" => "Waking…", _ => "Going to standby…" };
+                power.IsEnabled = state is "standby" or "idle";
+                power.ToolTip = state == "standby" ? "Power the camera on from standby" : "Put the camera in standby, as after a service";
             });
-            col.Children.Add(T.Row(8, dot, name, host, proto, port, input, presets, del, wake).Margin(0, 0, 0, 8));
+            col.Children.Add(T.Row(8, dot, name, host, proto, port, input, presets, del, power).Margin(0, 0, 0, 8));
             if (c.Proto == VISCAProtocol.PanasonicHTTP)
             {
                 // The camcorder turns every command away (404) unless these are set on it.
@@ -255,8 +265,10 @@ internal sealed class SetupPage : LiveView
                 col.Children.Add(hint);
             }
         }
-        col.Children.Add(T.Small("+ Add a camera", () => B.Ptz.Edit(l => l.Add(new PTZCamera { Name = $"Camera {l.Count + 1}", Proto = VISCAProtocol.CanonXC, Port = 80 })))
-            .With(b => b.HorizontalAlignment = HorizontalAlignment.Left).Margin(18, 4, 0, 0));
+        var add = T.Small("+ Add a camera", () => B.Ptz.Edit(l => l.Add(new PTZCamera { Name = $"Camera {l.Count + 1}", Proto = VISCAProtocol.CanonXC, Port = 80 })));
+        var allOff = T.Small("Put all cameras in standby…", () => Standby(B.Ptz.Awake), "After a service: every Canon camera that's on goes to standby (the same as Companion's power off)");
+        Live(() => allOff.Visibility = B.Ptz.Awake.Count > 0 ? Visibility.Visible : Visibility.Collapsed);
+        col.Children.Add(T.Row(8, add, allOff).With(r => r.HorizontalAlignment = HorizontalAlignment.Left).Margin(18, 4, 0, 0));
         outer.Children.Add(T.Card(col).Margin(0, 0, 0, 14));
 
         // Camera admin login
@@ -279,6 +291,22 @@ internal sealed class SetupPage : LiveView
             T.Text(saved != null ? $"Saved for {saved.User}." : "No login saved.", 12, null, saved != null ? T.Success : T.InkSubtle));
         outer.Children.Add(T.Card(login).With(c => c.HorizontalAlignment = HorizontalAlignment.Left));
         return outer;
+    }
+
+    /// <summary>Asks, warning if any camera is on Live or the switcher is streaming or recording, then puts them in standby.</summary>
+    private static void Standby(List<PTZCamera> cams)
+    {
+        if (cams.Count == 0) return;
+        var names = string.Join(", ", cams.Select(c => c.Name));
+        var warnings = B.StandbyWarnings(cams);
+        var msg = $"{names} will power down to standby. Wake {(cams.Count == 1 ? "it" : "them")} again from the button at the top.";
+        if (warnings.Count > 0) msg = string.Join("\n", warnings) + "\n\n" + msg;
+        if (!Dialogs.Confirm(cams.Count == 1 ? $"Put {cams[0].Name} in standby?" : $"Put {cams.Count} cameras in standby?", msg,
+                warnings.Count > 0 ? "Standby anyway" : "Standby", danger: true)) return;
+        B.PutInStandby(cams, failed =>
+        {
+            if (failed.Count > 0) Dialogs.Info("Some cameras didn't go to standby", string.Join("\n", failed.Select(f => $"{f.Key}: {f.Value}")));
+        });
     }
 
     // MARK: Claude

@@ -85,6 +85,9 @@ public static class ControlTools
         Tool("camera_stop", "Stop any pan, tilt and zoom on a camera.", P(("camera", CameraP()))),
         Tool("wake_cameras", "Power Canon cameras on from standby (after services they're put in standby, for example from Companion). get_status gives each camera's power: on, standby, waking up. Leave out cameras to wake every camera in standby. A camera takes several seconds to wake; Churchfront Video reads its state back.",
             P(("cameras", AnyList("Cameras to wake (name, IP or input). Leave out for every camera in standby.")))),
+        Tool("standby_cameras", "Put Canon cameras in standby, as after a service (the same as Companion's power off). Stops any tracking on them first. The camera goes dark until woken with wake_cameras. Confirm with the person first. Refused while a camera named is on Live or the switcher is streaming or recording, unless allow_live is true. Leave out cameras for every Canon camera that's on.",
+            P(("cameras", AnyList("Cameras to put in standby (name, IP or input). Leave out for every Canon camera that's on.")),
+              ("allow_live", Bool("Required as true while a camera named is on Live, or the switcher is streaming or recording.")))),
         Tool("camera_focus", "Focus a camera: once (one-shot autofocus, like the Focus button), auto, or manual.",
             P(("camera", CameraP()), ("mode", Choice("Focus mode.", "once", "auto", "manual")), ("allow_live", AllowLive())), "mode"),
         Tool("get_routing", "Video routing in plain words: what each M/E mix is for and shows, every aux output with the screen it feeds, its wiring note and the picture it gets now, and the volunteer routing buttons (lit or not)."),
@@ -273,6 +276,28 @@ public static class ControlTools
                         done(failed.Count == list.Count ? new JsonObject { ["error"] = "No camera woke.", ["failed"] = failed } : Ok($"Sent power on to {woke.Count} camera{(woke.Count == 1 ? "" : "s")}; give them several seconds", r));
                     });
                 }
+                break;
+            }
+            case "standby_cameras":
+            {
+                List<PTZCamera> list;
+                if (a["cameras"] is JsonArray named && named.Count > 0)
+                    list = named.Select(n => Cam(new JsonObject { ["camera"] = n?.DeepClone() }, changing: false)).DistinctBy(c => c.Id).ToList();
+                else list = Ptz.Awake;
+                var notCanon = list.Where(c => c.Proto != VISCAProtocol.CanonXC).Select(c => c.Name).ToList();
+                list = list.Where(c => c.Proto == VISCAProtocol.CanonXC && !Ptz.InStandby(c)).ToList();
+                if (list.Count == 0) { done(Ok(notCanon.Count > 0 ? $"Only Canon cameras can be put in standby ({string.Join(", ", notCanon)} can't). Nothing was changed." : "No Canon camera is on. Nothing was changed.")); break; }
+                var warnings = B.StandbyWarnings(list);
+                if (warnings.Count > 0 && CueJson.Bool(a["allow_live"]) != true)
+                    throw Fail($"{string.Join(" ", warnings)} Putting cameras in standby now could take a picture off the air. Confirm with the person, then send allow_live: true. Nothing was changed.");
+                B.PutInStandby(list, failed =>
+                {
+                    var went = new JsonArray(); foreach (var c in list.Where(c => !failed.ContainsKey(c.Name))) went.Add(c.Name);
+                    var r = new JsonObject { ["standby"] = went };
+                    if (failed.Count > 0) { var f = new JsonObject(); foreach (var (k, v) in failed) f[k] = v; r["failed"] = f; }
+                    if (notCanon.Count > 0) r["skipped"] = $"Not Canon cameras, so no standby: {string.Join(", ", notCanon)}.";
+                    done(failed.Count == list.Count ? new JsonObject { ["error"] = "No camera went to standby.", ["failed"] = r["failed"]?.DeepClone() } : Ok($"Sent standby to {went.Count} camera{(went.Count == 1 ? "" : "s")}", r));
+                });
                 break;
             }
             case "camera_stop":
