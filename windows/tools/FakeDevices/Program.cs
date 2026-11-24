@@ -581,6 +581,13 @@ static class FakeCanon
                 await s.WriteAsync(f);
                 return;
             }
+            // In standby a real Canon turns down sessions and control but still answers info.cgi.
+            bool asleep; lock (Move) asleep = _power != "idle";
+            if (asleep && (path.Contains("open.cgi") || path.Contains("claim.cgi") || path.Contains("control.cgi")))
+            {
+                await s.WriteAsync("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 14\r\nConnection: close\r\n\r\nError: standby"u8.ToArray());
+                return;
+            }
             if (path.Contains("open.cgi")) body = "s:=fake-session\n";
             else if (path.Contains("claim.cgi")) body = "s.control:=enabled:0\n";
             else if (path.Contains("close.cgi")) body = "";

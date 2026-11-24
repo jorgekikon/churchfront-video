@@ -217,8 +217,8 @@ internal sealed class SetupPage : LiveView
             var id = c.Id;
             void Edit(Action<PTZCamera> f) => B.Ptz.Edit(l => { var x = l.FirstOrDefault(y => y.Id == id); if (x != null) f(x); });
             var dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8 };
-            Live(() => dot.Fill = B.Ptz.HasControl(c) ? T.Success : B.Ptz.Online.Contains(id) ? T.Warning : T.InkSubtle);
-            dot.ToolTip = "Green: answering and in control. Amber: answering, another controller has it. Grey: not answering.";
+            Live(() => dot.Fill = B.Ptz.HasControl(c) ? T.Success : B.Ptz.Online.Contains(id) || B.Ptz.InStandby(c) || B.Ptz.Waking(c) ? T.Warning : T.InkSubtle);
+            dot.ToolTip = "Green: answering and in control. Amber: answering, but another controller has it or it's in standby. Grey: not answering.";
             var name = T.Field(c.Name, v => Edit(x => x.Name = v.Trim().Length > 0 ? v.Trim() : "Camera"), 150);
             var host = T.Field(c.Host, v => Edit(x => x.Host = v.Trim()), 150, "192.168.1.91");
             var proto = T.Picker(c.Proto.Label(), Enum.GetValues<VISCAProtocol>().Select(p => (p.Label(), (Action)(() => Edit(x => { if (x.Proto != p) { x.Proto = p; x.Port = p.DefaultPort(); } })))), 180);

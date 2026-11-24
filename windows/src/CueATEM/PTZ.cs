@@ -526,6 +526,7 @@ internal sealed class CanonLink : IPTZLink
     {
         _stopped = false;
         if (_camera.Host.Length == 0) return;
+        ReadPower();
         Open();
         _timer = new Timer(_ => _queue.Post(KeepAlive), null, TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
     }
@@ -588,7 +589,9 @@ internal sealed class CanonLink : IPTZLink
     private void KeepAlive()
     {
         if (_stopped) return;
-        if (_session is not string s) { Open(); return; }
+        // A Canon in standby turns down open.cgi but still answers info.cgi, so its power state
+        // is read with or without a session: that's how the app knows to offer Wake.
+        if (_session is not string s) { ReadPower(); Open(); return; }
         Claim(s);
         if ((DateTime.UtcNow - _lastPresetRead).TotalSeconds > 60) ReadInfo();
         else ReadPower();

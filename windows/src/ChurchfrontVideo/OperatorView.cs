@@ -317,9 +317,9 @@ public sealed class OperatorView : LiveView
         Live(() =>
         {
             if (t == null) { status.Text = ""; return; }
-            status.Text = !Ptz.Online.Contains(t.Id) ? "Not answering"
-                : Ptz.InStandby(t) ? $"{t.Name} is in standby. Wake it with the button at the top."
+            status.Text = Ptz.InStandby(t) ? $"{t.Name} is in standby. Wake it with the button at the top."
                 : Ptz.Waking(t) ? $"{t.Name} is waking up."
+                : !Ptz.Online.Contains(t.Id) ? "Not answering"
                 : !Ptz.HasControl(t) ? $"Waiting for control. Another controller has {t.Name}, maybe its web page. Close it and this takes over." : "";
         });
         var controls = T.Row(16, joy, zoom, side);
