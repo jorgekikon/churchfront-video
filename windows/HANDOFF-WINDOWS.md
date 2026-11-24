@@ -264,3 +264,18 @@ Full plan, command formats and DB3 firmware findings: `windows/CX350-PTZ-NOTES.m
   Smoke checks. Not tried on the real camera yet; first, the two browser zoom URLs in the notes.
 - Not done: iris (#AXI, #D3) and other picture settings, manual focus speed, the pan/tilt head (composite
   camera), RTSP. The Mac app doesn't know panasonicHTTP and won't open a setup file that has it.
+
+## Idea, not started: powering devices on from the app (discussed 2026-11-23, undecided)
+The switcher and the Panasonic camera are on Wi-Fi smart plugs: a mix of TP-Link Kasa and generic plugs run by
+the Tuya app. All are also in Alexa. Bitfocus Companion (on the Mac mini, which is sometimes off) already
+controls OBS, the Canons, the Panasonic, ProPresenter 7 and Lightkey.
+- Alexa itself has no official API for an app to switch devices or start routines. Webhook skills (Voice
+  Monkey) can start a routine from a URL; unofficial cookie-based access (alexa-remote) is to be avoided.
+- Option A (suggested first): press Companion buttons over its HTTP API (Companion 3.x:
+  POST http://<mac-mini>:8000/api/location/<page>/<row>/<column>/press; 2.x: /press/bank/<page>/<button>;
+  the HTTP remote may need enabling). Setup would list named buttons; a Power area in Engineer and a Claude
+  tool press them. Can be built against a fake Companion. Catch: power-on needs the Mac mini on first.
+- Option B: switch the plugs directly from this PC, no Mac mini needed. Kasa: local protocol (newer firmware
+  changed it; test on the real plugs). Tuya: needs each plug's local key from a free Tuya developer account.
+- Either way: power-off asks first and is refused while live, streaming or recording (and for Claude, the
+  same kind of guard as allow_live). Next: the user picks A, B or both; check which plug modules Companion has.
