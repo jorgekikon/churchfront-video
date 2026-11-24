@@ -163,7 +163,7 @@ public sealed class StageScan
     }
 
     /// <summary>Why the scan can't find people on this computer, or null if it can.</summary>
-    public string? Unavailable => AutoTracker.Shared.Detector == null ? AutoTracker.Shared.Unavailable ?? "The body-pose model isn't loaded." : Images == null ? "Pictures can't be decoded." : null;
+    public string? Unavailable => AutoTracker.Shared.Detector == null ? AutoTracker.Shared.Unavailable ?? "Auto tracking's person finder isn't loaded, so people can't be found." : Images == null ? "This computer can't read the camera pictures." : null;
 
     private static Task<T> Main<T>(Func<T> f)
     {
@@ -219,7 +219,7 @@ public sealed class StageScan
                         picture = f;
                         seen = TrackedPerson.From(detector.Detect(f), f);
                     }
-                    else Note($"{c.Name}: no picture came in, so no one was found on it.");
+                    else Note($"{c.Name}: no picture came in from it, so no one could be found.");
                     var view = await CanonState.Read(c) ?? there ?? start;
 
                     foreach (var p in seen.OrderBy(p => p.Box.MidX))
@@ -239,7 +239,7 @@ public sealed class StageScan
 
                     // Back to where it was, unless it went Live in the meantime: nothing moves on Live.
                     if (await Main(() => Blocked(c)) == null) await Main(() => B.Ptz.Go(new PTZShot("", start.Position), c.Id));
-                    else Note($"{c.Name} was left on its wide shot because it's now in use.");
+                    else Note($"{c.Name} was left on its wide shot, because someone started using it during the scan.");
                 }
             }
             catch (Exception e) { Note("The scan stopped: " + e.Message); }

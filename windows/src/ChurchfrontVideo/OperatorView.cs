@@ -82,14 +82,14 @@ public sealed class OperatorView : LiveView
         mons.ColumnDefinitions.Add(new ColumnDefinition());
         mons.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(56) });
         mons.ColumnDefinitions.Add(new ColumnDefinition());
-        var next = Monitor("NEXT", T.Preview, () => S.PreviewOf(B.Me));
-        var live = Monitor("LIVE", T.Program, () => S.ProgramOf(B.Me));
+        var next = Tour.Mark(Monitor("NEXT", T.Preview, () => S.PreviewOf(B.Me)), "next");
+        var live = Tour.Mark(Monitor("LIVE", T.Program, () => S.ProgramOf(B.Me)), "live");
         Grid.SetColumn(live, 2);
         mons.Children.Add(next); mons.Children.Add(live);
         root.Children.Add(mons);
 
         // Source row
-        var sourceRow = T.Column(8, T.Step(1, "Pick what's next").With(s => s.HorizontalAlignment = HorizontalAlignment.Center), SourceRow());
+        var sourceRow = Tour.Mark(T.Column(8, T.Step(1, "Pick what's next").With(s => s.HorizontalAlignment = HorizontalAlignment.Center), SourceRow()), "sources");
         sourceRow.Margin = new Thickness(0, 4, 0, 14);
         Grid.SetRow(sourceRow, 1);
         root.Children.Add(sourceRow);
@@ -228,7 +228,7 @@ public sealed class OperatorView : LiveView
         var sources = Store.VolunteerSources(S);
         if (sources.Count == 0)
         {
-            return T.Text(Atem.Link.Kind == LinkKind.Online ? "No sources set up yet. Add them in Engineer, Setup." : "Connect the switcher in Engineer, Setup.", 13, null, T.InkSubtle)
+            return T.Text(Atem.Link.Kind == LinkKind.Online ? "No sources set up yet. Add them in Engineer → Setup → Sources." : "No switcher connected. Add its address in Engineer → Setup → Switcher.", 13, null, T.InkSubtle)
                 .With(t => t.HorizontalAlignment = HorizontalAlignment.Center);
         }
         int n = 0;
@@ -274,7 +274,7 @@ public sealed class OperatorView : LiveView
             Child = t == null
                 ? T.Row(8, T.Text("No camera on Next", 16, FontWeights.Bold, T.InkMuted), T.Text(Store.Label(S.PreviewOf(B.Me), S), 13, null, T.InkSubtle))
                 : T.Row(8, T.Text("🎥", 13), T.Text(t.Name, 16, FontWeights.Bold), T.Badge("On next", T.OnAction, T.Preview)),
-            ToolTip = "Exposure and saved shots below act on the camera that's on Next.",
+            ToolTip = "Exposure and the shots below control the camera that's on Next, never the one on Live.",
         };
         // A Panasonic camcorder's iris, gain and white balance aren't wired up yet.
         if (t != null && t.Proto != VISCAProtocol.PanasonicHTTP)
@@ -284,6 +284,7 @@ public sealed class OperatorView : LiveView
             header.Children.Add(expo);
         }
         header.Children.Add(head);
+        Tour.Mark(header, "camera");
         DockPanel.SetDock(header, Dock.Top);
         p.Children.Add(header);
 
@@ -291,6 +292,7 @@ public sealed class OperatorView : LiveView
         // of this screen, so it's made once and moved into each new layout.
         if (_deck.Parent is Panel old) old.Children.Remove(_deck);
         p.Children.Add(_deck);
+        Tour.Mark(_deck, "shots");
         Live(() => _deck.Refresh());
         return p;
     }
@@ -320,9 +322,9 @@ public sealed class OperatorView : LiveView
             status.Text = Ptz.InStandby(t) ? $"{t.Name} is in standby. Wake it with the button at the top."
                 : Ptz.Waking(t) ? $"{t.Name} is waking up."
                 : !Ptz.Online.Contains(t.Id) ? "Not answering"
-                : !Ptz.HasControl(t) ? $"Waiting for control. Another controller has {t.Name}, maybe its web page. Close it and this takes over." : "";
+                : !Ptz.HasControl(t) ? $"Can't move {t.Name} yet: something else has control of it, such as its web page or another controller. Close that, and this app takes over by itself." : "";
         });
-        var controls = T.Row(16, joy, zoom, side);
+        var controls = Tour.Mark(T.Row(16, joy, zoom, side), "frame");
         controls.Opacity = t == null ? 0.35 : 1;
 
         // Speed: shared by every camera and saved in the setup.
@@ -332,7 +334,8 @@ public sealed class OperatorView : LiveView
         slider.PreviewMouseUp += (_, _) => Store.Update(c => c.PtzSpeed = Math.Round(slider.Value * 20) / 20);
         var reset = T.Button(T.Text("Reset", 11, null, T.InkSubtle), () => { slider.Value = 1; Store.Update(c => c.PtzSpeed = 1); }, T.Transparent, T.Transparent, pad: new Thickness(4));
         var speed = T.Row(8, T.Text("🐢", 11, null, T.InkSubtle), slider, T.Text("🐇", 11, null, T.InkSubtle), val, reset);
-        speed.ToolTip = "Camera speed for the joystick, zoom and arrow keys. Slow it down for fine framing on a tight shot.";
+        speed.ToolTip = "How fast the joystick, zoom and arrow keys move the camera. Slow it down for small adjustments on a close-up.";
+        Tour.Mark(speed, "speed");
 
         var col = T.Column(12, title, controls, speed);
         if (t == null)
@@ -360,7 +363,7 @@ public sealed class OperatorView : LiveView
     /// nearest the middle; clicking someone on the Next picture follows them instead.</summary>
     private FrameworkElement TrackControls(PTZCamera? t)
     {
-        var col = new StackPanel { Width = 150 };
+        var col = Tour.Mark(new StackPanel { Width = 150 }, "track");
         var walk = T.Text("🚶", 12);
         var label = T.Text("Track", 12, FontWeights.SemiBold);
         var btn = T.Button(T.Row(6, walk, label), () =>
@@ -374,7 +377,7 @@ public sealed class OperatorView : LiveView
         col.Children.Add(btn);
 
         // People labelled in the stage scan can be followed by name, wherever they are in the shot.
-        var byName = T.Button(T.Text("Follow by name ▾", 11, FontWeights.SemiBold, T.AccentStrong), null, T.Transparent, T.Transparent, double.NaN, 22, 4, new Thickness(2, 0, 2, 0), "Follow someone labelled in the stage scan");
+        var byName = T.Button(T.Text("Follow by name ▾", 11, FontWeights.SemiBold, T.AccentStrong), null, T.Transparent, T.Transparent, double.NaN, 22, 4, new Thickness(2, 0, 2, 0), "Follow someone named in Engineer → Stage scan");
         byName.HorizontalAlignment = HorizontalAlignment.Left;
         byName.Click += (_, _) =>
         {
@@ -421,11 +424,11 @@ public sealed class OperatorView : LiveView
             btn.Background = s == null ? T.SurfaceRaised : T.Accent;
             btn.BorderBrush = s == null ? T.LineStrong : T.Accent;
             btn.ToolTip = t == null ? null
-                : s != null ? "Stop following (Ctrl+T; Esc or Ctrl+. stops every tracking camera). Moving the joystick or recalling a shot also stops it."
-                : can ? "Follow the person in the middle of the shot (Ctrl+T). Or click someone on the Next picture. Moving the joystick stops tracking."
+                : s != null ? "Stop following (Ctrl+T). Esc or Ctrl+. stops every camera that's tracking. Moving the joystick or picking a shot also stops it."
+                : can ? "The camera follows the person nearest the middle of the picture (Ctrl+T), or click a person on the Next picture to follow them. Moving the joystick stops it."
                 : Tracker.Detector == null ? Tracker.Unavailable ?? "Auto tracking isn't set up on this computer."
                 : !t.Proto.HasPanTilt() ? $"{t.Name} can't pan or tilt, so it can't follow anyone."
-                : "Auto tracking needs the camera's picture: a Canon camera's own, or an NDI picture set for its switcher input in Setup.";
+                : "Auto tracking needs to see this camera's picture. Canon cameras send their own; for other cameras, choose an NDI picture for its input in Engineer → Setup → Sources.";
             sizes.Visibility = speedRow.Visibility = headRow.Visibility = s != null ? Visibility.Visible : Visibility.Collapsed;
             byName.Visibility = s == null && can && StageCast.Shared.Names.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
             foreach (var (z, b, l) in sizeButtons)
@@ -478,7 +481,7 @@ public sealed class OperatorView : LiveView
             row.Children.Add(plus); row.Children.Add(val); row.Children.Add(minus); row.Children.Add(label);
             el = row;
         }
-        el.ToolTip = "How quickly tracking cameras follow. Raise it if the camera falls behind, lower it if it overshoots.";
+        el.ToolTip = "How quickly a tracking camera follows the person. Raise it if the camera falls behind; lower it if it swings past them.";
         Live(() =>
         {
             var sp = Store.Config.TrackSpeed;
@@ -506,7 +509,7 @@ public sealed class OperatorView : LiveView
         row.Children.Add(plus); row.Children.Add(val); row.Children.Add(minus);
         row.Children.Add(T.Text("Headroom", 11, null, T.InkMuted).With(x => x.VerticalAlignment = VerticalAlignment.Center));
         var m = T.Menu();
-        m.Items.Add(T.Item("Back to standard", () => { if (size() is ShotSize z) Store.Update(c => HeadroomStepper.Set(c, z, z.Standard().EyeLine ?? z.EyeLine(c))); }));
+        m.Items.Add(T.Item("Back to the default", () => { if (size() is ShotSize z) Store.Update(c => HeadroomStepper.Set(c, z, z.Standard().EyeLine ?? z.EyeLine(c))); }));
         row.ContextMenu = m;
         Live(() =>
         {
@@ -514,7 +517,7 @@ public sealed class OperatorView : LiveView
             var eye = z.EyeLine(Store.Config); var std = z.Standard().EyeLine ?? eye;
             val.Text = HeadroomStepper.Label(HeadroomStepper.Steps(eye, std));
             minus.IsEnabled = eye > HeadroomStepper.Low + 0.001; plus.IsEnabled = eye < HeadroomStepper.High - 0.001;
-            row.ToolTip = $"Space above the head on the {z.Name().ToLowerInvariant()} shot. Minus gives less, plus gives more.";
+            row.ToolTip = $"How much space is left above the head on the {z.Name().ToLowerInvariant()} shot. Minus for less, plus for more.";
         });
         return row;
     }
@@ -536,7 +539,7 @@ public sealed class OperatorView : LiveView
         var fade = T.Button(T.Column(2, fadeTitle, fadeSub), () => Atem.Auto(me), T.Program, new SolidColorBrush(Color.FromArgb(64, 255, 255, 255)), 124, 92, 8, tip: "Fade from Live to Next (Return)");
         var cutT = T.Text("CUT", 26, FontWeights.Bold); cutT.HorizontalAlignment = HorizontalAlignment.Center;
         var cutS = T.Text("Space", 11, FontWeights.Medium, T.InkMuted); cutS.HorizontalAlignment = HorizontalAlignment.Center;
-        var cut = T.Button(T.Column(2, cutT, cutS), () => Atem.Cut(me), T.SurfaceRaised, T.LineStrong, 124, 92, 8, tip: "Switch to Next instantly (Space)");
+        var cut = T.Button(T.Column(2, cutT, cutS), () => Atem.Cut(me), T.SurfaceRaised, T.LineStrong, 124, 92, 8, tip: "Switch Next to Live instantly (Space)");
         Live(() =>
         {
             var fading = S.Get(S.InTransition, me);
@@ -571,7 +574,7 @@ public sealed class OperatorView : LiveView
             grid.Children.Add(lb.Button);
         }
 
-        var col = T.Column(12, T.Step(3, "Take it live"), T.Row(8, fade, cut), grid);
+        var col = T.Column(12, T.Step(3, "Take it live"), Tour.Mark(T.Row(8, fade, cut), "take"), Tour.Mark(grid, "keys"));
         if (Store.Config.Routes.Count > 0)
         {
             var routes = new WrapPanel();
@@ -592,7 +595,7 @@ public sealed class OperatorView : LiveView
                 routes.Children.Add(b);
             }
             col.Children.Add(T.Caps("Screens").Margin(0, 4, 0, 0));
-            col.Children.Add(routes.Margin(0, 6, 0, 0));
+            col.Children.Add(Tour.Mark(routes, "screens").Margin(0, 6, 0, 0));
         }
         return col;
     }

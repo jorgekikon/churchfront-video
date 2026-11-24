@@ -184,6 +184,9 @@ public sealed class ConfigStore
     /// <summary>Why the file couldn't be read, if it couldn't. The app keeps running on the last good setup.</summary>
     public string? FileError { get; private set; }
     public DateTime? LoadedAt { get; private set; }
+    /// <summary>This run began with no setup file at all (a new install), so the app opens the
+    /// Operator tour for the first volunteer. Never in a self-test.</summary>
+    public bool StartedFresh { get; private set; }
     /// <summary>Raised on the main thread when the setup or the file's state changes.</summary>
     public event Action? Changed;
 
@@ -212,7 +215,7 @@ public sealed class ConfigStore
     {
         _booth = booth;
         if (Read() is CueConfig c) Config = c;
-        else if (FileError == null) { Config = new CueConfig(); Write(); }
+        else if (FileError == null) { Config = new CueConfig(); Write(); StartedFresh = !ReadOnly; }
         else
         {
             // config.json has a mistake in it: open on the last setup that worked, and say so.

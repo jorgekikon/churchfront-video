@@ -34,7 +34,7 @@ public sealed class EngineerView : Grid
         var back = T.Small("Back to Operator", () => B.View = AppView.Operate);
         DockPanel.SetDock(back, Dock.Right);
         bar.Children.Add(back);
-        var note = T.Text("Space, Return and the number keys do nothing in this view.", 12, null, T.InkMuted).Margin(0, 0, 12, 0);
+        var note = T.Text("Space, Return and number-key shortcuts work only on the Operator screen.", 12, null, T.InkMuted).Margin(0, 0, 12, 0);
         DockPanel.SetDock(note, Dock.Right);
         bar.Children.Add(note);
         bar.Children.Add(T.Row(10, T.Caps("On air now"),
@@ -47,8 +47,8 @@ public sealed class EngineerView : Grid
         // Sidebar
         var side = new StackPanel { Margin = new Thickness(8, 14, 8, 8) };
         foreach (var (s, sub) in new[] { (EngineerSection.Scan, "People, labels, shots"), (EngineerSection.Routing, "Screens and buttons"),
-                                         (EngineerSection.Switcher, "Keys, T-bar, macros, aux"), (EngineerSection.Setup, "Sources, keys, cameras"),
-                                         (EngineerSection.Status, "Connections and log") })
+                                         (EngineerSection.Switcher, "Every switcher control"), (EngineerSection.Setup, "Switcher, sources, cameras, PIN"),
+                                         (EngineerSection.Status, "Connections and this app's version") })
         {
             var t1 = T.Text(s.Title(), 13, FontWeights.SemiBold); var t2 = T.Text(sub, 11, null, T.InkMuted);
             var section = s;
@@ -172,7 +172,7 @@ internal sealed class LockPage : LiveView
         var col = T.Column(14,
             T.Text("🔒", 40).With(t => t.HorizontalAlignment = HorizontalAlignment.Center),
             T.Text($"{B.Section.Title()} is locked", 22, FontWeights.Bold).With(t => t.HorizontalAlignment = HorizontalAlignment.Center),
-            T.Text("It can change what the livestream and the screens show. Enter the PIN to open the Engineer pages. They lock again when you go back to Operator, or after 10 minutes without use. Status stays open.",
+            T.Text("This page can change what the livestream and the screens show, so it needs the PIN. Once unlocked, the Engineer pages stay open until you go back to Operator, or for 10 minutes without use. Status is always open.",
                 13, null, T.InkMuted, wrap: true).With(t => { t.MaxWidth = 420; t.TextAlignment = TextAlignment.Center; t.HorizontalAlignment = HorizontalAlignment.Center; }),
             box.With(x => x.HorizontalAlignment = HorizontalAlignment.Center),
             problem.With(t => t.HorizontalAlignment = HorizontalAlignment.Center),
@@ -210,8 +210,8 @@ internal sealed class ScanPage : LiveView
     protected override UIElement Build()
     {
         var page = new StackPanel { MaxWidth = 1100, HorizontalAlignment = HorizontalAlignment.Left };
-        page.Children.Add(EngineerView.Heading("Stage scan", "With everyone in place, find each person, name them, and save a shot of them on every camera."));
-        page.Children.Add(T.Text("Each camera that isn't on Live goes to a wide shot, finds the people in it, and comes back. The wide shot is a camera's shot named Stage or Wide if it has one; otherwise it's where the camera points now, zoomed all the way out. A tighter Stage shot makes people bigger in the picture and easier to find. The shots are for where people stood during the scan, so run it at rehearsal or soundcheck.",
+        page.Children.Add(EngineerView.Heading("Stage scan", "Run this at rehearsal with everyone standing where they will be: the cameras find each person, you name them, and a shot of each person is saved on every camera."));
+        page.Children.Add(T.Text("Each camera that isn't on Live zooms out to a wide shot, finds the people in it, and then goes back to where it was. For the wide shot it uses a saved shot named Stage or Wide if the camera has one; otherwise it zooms all the way out from where it points now. People are easier to find when they look bigger, so a Stage shot framed just around the stage works best. The saved shots point at where people stood during the scan.",
             12, null, T.InkMuted, wrap: true).Margin(0, -6, 0, 16));
 
         // 1 Cameras
@@ -248,7 +248,7 @@ internal sealed class ScanPage : LiveView
             Live(() => { var on = Scan.Size == size; b.Background = on ? T.Accent : T.SurfaceSunken; l.Foreground = on ? T.OnAction : T.InkMuted; });
             sizes.Children.Add(b);
         }
-        var go = T.Primary("Scan the stage", () => { _saved = new(); Scan.Scan(); }, "Moves each camera marked \"Will go wide and come back\". Cameras on Live don't move.");
+        var go = T.Primary("Scan the stage", () => { _saved = new(); Scan.Scan(); }, "Moves every camera marked \"Will go wide and come back\". A camera on Live never moves.");
         var goText = (TextBlock)go.Content;
         var state = T.Text("", 12, null, T.InkSubtle, wrap: true);
         var notes = T.Text("", 12, FontWeights.SemiBold, T.Warning, wrap: true);
@@ -279,12 +279,12 @@ internal sealed class ScanPage : LiveView
         var step3 = new StackPanel();
         if (Scan.People.Count == 0)
         {
-            step3.Children.Add(T.Text(Scan.ScannedAt == null ? "After a scan, each person each camera saw appears here with a box for their name."
-                                                              : "The last scan found no one. Check the notes above, then scan again.", 13, null, T.InkMuted, wrap: true));
+            step3.Children.Add(T.Text(Scan.ScannedAt == null ? "After you scan, you'll see a picture of everyone each camera found, with a box to type their name."
+                                                              : "The last scan found no one. Read the notes above for why, then scan again.", 13, null, T.InkMuted, wrap: true));
         }
         else
         {
-            step3.Children.Add(T.Text("Type a name or a role under each person. The letter is Churchfront Video's guess at the same person on another camera: naming one fills in the others with that letter. Fix any it got wrong, and leave a person blank to skip them.",
+            step3.Children.Add(T.Text("Type a name or role (such as Pastor) under each person you want shots of. Someone seen by more than one camera has the same letter on each; name them once and the rest fill in. Fix any wrong guesses. Anyone left blank is skipped.",
                 12, null, T.InkMuted, wrap: true).Margin(0, 0, 0, 10));
             foreach (var c in Cameras.Where(c => Scan.People.Any(p => p.Camera == c.Id)))
             {
@@ -296,14 +296,14 @@ internal sealed class ScanPage : LiveView
             // Out of the name box first, so the page can show what was saved.
             var save = T.Primary("Save shots and names", () => { System.Windows.Input.Keyboard.ClearFocus(); _saved = Scan.Save(); });
             Live(() => { save.IsEnabled = Scan.People.Any(p => p.Label.Trim().Length > 0) && !Scan.Running; save.Opacity = save.IsEnabled ? 1 : 0.5; });
-            step3.Children.Add(T.Row(12, save, T.Text("Replaces the shots from the last scan. Shots you made yourself are kept.", 12, null, T.InkSubtle).With(t => t.VerticalAlignment = VerticalAlignment.Center)).Margin(0, 6, 0, 0));
+            step3.Children.Add(T.Row(12, save, T.Text("This replaces shots saved by the previous scan. Shots you saved yourself are kept.", 12, null, T.InkSubtle).With(t => t.VerticalAlignment = VerticalAlignment.Center)).Margin(0, 6, 0, 0));
             foreach (var line in _saved) step3.Children.Add(T.Text(line, 12, FontWeights.SemiBold, T.Success, wrap: true).Margin(0, 6, 0, 0));
         }
         page.Children.Add(T.Card(Step(3, "Name people and save", step3)).Margin(0, 0, 0, 14));
 
         if (StageCast.Shared.Names.Count > 0)
             page.Children.Add(T.Card(T.Column(4, T.Caps("Can follow by name"), T.Text(string.Join(", ", StageCast.Shared.Names), 13, FontWeights.SemiBold),
-                T.Text("On Operator, under Track, choose Follow by name. This lasts until Churchfront Video quits or the next scan is saved.", 12, null, T.InkSubtle, wrap: true))));
+                T.Text("To use it: on the Operator screen, under Track, choose Follow by name. These names are remembered until Churchfront Video is closed or the next scan is saved.", 12, null, T.InkSubtle, wrap: true))));
         return page;
     }
 
@@ -349,7 +349,7 @@ internal sealed class ScanPage : LiveView
             bottom.Children.Add(T.Text("size is a guess", 10, null, T.Warning).With(t =>
             {
                 t.VerticalAlignment = VerticalAlignment.Center;
-                t.ToolTip = "Only this person's outline was found, so how tight the shot is was estimated. Try the shot and adjust.";
+                t.ToolTip = "Only this person's outline was found, not their face and shoulders, so the shot size is a guess. Try the shot, and adjust it if needed.";
             }));
         var card = T.Column(6, new Border { Child = pic, BorderBrush = T.Line, BorderThickness = new Thickness(1) }, label, bottom);
         card.Width = 160;
@@ -391,10 +391,10 @@ internal sealed class SwitcherPage : LiveView
         }
         var model = T.Text("", 12, null, T.InkMuted);
         Live(() => model.Text = S.Product);
-        col.Children.Add(EngineerView.Heading("Full switcher", "Every control on the switcher. What you press here goes to air like the hardware panel.", meSel ?? model));
+        col.Children.Add(EngineerView.Heading("Full switcher", "Every control on the switcher. Anything you press here goes out live, just like pressing it on the switcher's own panel.", meSel ?? model));
         if (S.Inputs.Count == 0)
         {
-            col.Children.Add(T.Card(T.Text("Connect the switcher in Setup to see its controls.", 13, null, T.InkMuted)));
+            col.Children.Add(T.Card(T.Text("No switcher connected yet. Add its address in Setup → Switcher.", 13, null, T.InkMuted)));
             return col;
         }
 
@@ -471,7 +471,7 @@ internal sealed class SwitcherPage : LiveView
         var lower = new WrapPanel();
         var keys = new StackPanel();
         keys.Children.Add(T.Caps("Keys").Margin(0, 0, 0, 8));
-        keys.Children.Add(T.Text("Next transition takes", 12, null, T.InkMuted).Margin(0, 0, 0, 6));
+        keys.Children.Add(T.Text("Next Cut or Fade changes", 12, null, T.InkMuted).Margin(0, 0, 0, 6));
         var next = new StackPanel { Orientation = Orientation.Horizontal };
         for (int bit = 0; bit <= S.KeyerCount; bit++)
         {
@@ -589,7 +589,7 @@ internal sealed class StatusPage : LiveView
     protected override UIElement Build()
     {
         var col = new StackPanel();
-        col.Children.Add(EngineerView.Heading("Status", "Connections, and the last commands sent to the switcher."));
+        col.Children.Add(EngineerView.Heading("Status", "Which version of the app this is, what it's connected to, and the last commands sent to the switcher."));
         // Which build is running: handy when checking the booth has the latest.
         var build = T.Text(AppInfo.Text, 13, FontWeights.SemiBold, T.Ink, wrap: true);
         build.ToolTip = $"Churchfront Video for Windows. Built from commit {(AppInfo.Commit.Length > 0 ? AppInfo.Commit : "(unknown)")} of the windows-port branch.";
@@ -619,7 +619,7 @@ internal sealed class StatusPage : LiveView
                                 (B.Ptz.Models.TryGetValue(cam.Id, out var m) ? $"  ·  {m}" : ""));
             cams.Children.Add(t.Margin(0, 0, 0, 6));
         }
-        if (B.Ptz.Cameras.Count == 0) cams.Children.Add(T.Text("No cameras set up.", 13, null, T.InkSubtle));
+        if (B.Ptz.Cameras.Count == 0) cams.Children.Add(T.Text("No cameras set up. Add them in Setup → Cameras.", 13, null, T.InkSubtle));
         col.Children.Add(T.Card(cams).Margin(0, 0, 0, 14));
 
         var log = new TextBlock { FontFamily = T.Mono, FontSize = 12, Foreground = T.InkMuted, TextWrapping = TextWrapping.Wrap };

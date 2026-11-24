@@ -33,7 +33,7 @@ public static class NdiPicker
             m.Items.Clear();
             m.Items.Add(T.Item(none, () => set(null)));
             m.Items.Add(new Separator());
-            if (!NdiDirectory.HasRuntime) m.Items.Add(new MenuItem { Header = "NDI isn't installed on this computer (install NDI Tools)", IsEnabled = false, Foreground = T.InkMuted });
+            if (!NdiDirectory.HasRuntime) m.Items.Add(new MenuItem { Header = "NDI isn't installed on this computer. Install NDI Tools (free, from ndi.video) to see network pictures.", IsEnabled = false, Foreground = T.InkMuted });
             else if (NdiDirectory.Sources.Count == 0) m.Items.Add(new MenuItem { Header = NdiDirectory.Scanning ? "Looking for NDI sources…" : "No NDI sources found yet", IsEnabled = false, Foreground = T.InkMuted });
             foreach (var n in NdiDirectory.Sources)
             {

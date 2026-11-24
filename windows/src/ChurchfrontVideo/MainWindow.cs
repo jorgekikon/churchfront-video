@@ -23,6 +23,10 @@ public sealed class MainWindow : Window
     private readonly TextBlock _opText, _enText, _status, _cams;
     private readonly System.Windows.Shapes.Ellipse _dot = new() { Width = 8, Height = 8 };
     private readonly T.LitButton _record, _stream, _wake;
+    private readonly Button _tourButton;
+    private readonly Tour _tour;
+    /// <summary>Whether the guided tour is showing (for self-tests).</summary>
+    public bool TourOpen => _tour.IsOpen;
     private bool _dirty = true;
     private long _lastRefresh;
     private AppView? _shownView;
@@ -41,7 +45,7 @@ public sealed class MainWindow : Window
         _opText = T.Text("Operator", 13, FontWeights.SemiBold); _enText = T.Text("Engineer", 13, FontWeights.SemiBold);
         _opTab = T.Button(_opText, () => B.View = AppView.Operate, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "The booth screen (Ctrl+1)");
         // The Engineer tab opens on Status, which anyone can see; the other pages may ask for the PIN.
-        _enTab = T.Button(_enText, () => { if (B.View != AppView.Engineer) B.Show(EngineerSection.Status); }, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "Status, and (with the PIN, if one is set) routing, full switcher and setup");
+        _enTab = T.Button(_enText, () => { if (B.View != AppView.Engineer) B.Show(EngineerSection.Status); }, T.Transparent, T.Transparent, h: 28, radius: 6, tip: "Status, and the pages for routing, the full switcher and setup (these may ask for the PIN)");
         var seg = new Border { Background = T.SurfaceSunken, BorderBrush = T.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(2), Child = T.Row(2, _opTab, _enTab) };
         _status = T.Text("", 13, FontWeights.SemiBold);
         _cams = T.Text("", 13, null, T.InkMuted);
@@ -61,16 +65,32 @@ public sealed class MainWindow : Window
         _monitors.Margin = new Thickness(0, 0, 12, 0);
         DockPanel.SetDock(_monitors, Dock.Right);
         bar.Children.Add(_monitors);
-        var left = T.Row(16, T.Text("Churchfront Video", 16, FontWeights.Bold), seg, T.Row(6, _dot, _status), _cams);
+        // The guided tour of the Operator screen, any time (shown only on Operator).
+        _tourButton = T.Button(T.Row(6, T.Text("?", 12, FontWeights.Bold, T.AccentStrong), T.Text("Tour", 12, FontWeights.SemiBold, T.AccentStrong)),
+            () => _tour?.Open(), T.Transparent, T.Line, h: 28, radius: 6, pad: new Thickness(10, 0, 10, 0),
+            tip: "A guided tour of the Operator screen, for anyone new to it");
+        System.Windows.Automation.AutomationProperties.SetName(_tourButton, "Tour");
+        var left = T.Row(16, T.Text("Churchfront Video", 16, FontWeights.Bold), Tour.Mark(seg, "views"), Tour.Mark(T.Row(6, _dot, _status), "connection"), _cams, Tour.Mark(_tourButton, "tour"));
         left.VerticalAlignment = VerticalAlignment.Center;
         bar.Children.Add(left);
+        Tour.Mark(right, "topright");
 
         var root = new DockPanel();
         var barBorder = new Border { Child = bar, Background = T.Toolbar, BorderBrush = T.Line, BorderThickness = new Thickness(0, 0, 0, 1) };
         DockPanel.SetDock(barBorder, Dock.Top);
         root.Children.Add(barBorder);
         root.Children.Add(_content);
-        Content = root;
+        // The tour lies over everything, and catches every click and key while it's open.
+        var shell = new Grid();
+        shell.Children.Add(root);
+        _tour = new Tour(shell);
+        Content = shell;
+        // First run (no setup file before this one was made), or a self-test asking for it: start the tour.
+        Loaded += (_, _) =>
+        {
+            if (B.Store.StartedFresh || Environment.GetEnvironmentVariable("CUEVIDEO_TOUR") == "1")
+                Dispatcher.BeginInvoke(() => _tour.Open(), DispatcherPriority.ApplicationIdle);
+        };
 
         // Anything that changes marks the screen for a redraw; a timer redraws at most 30 times a second.
         B.Atem.Changed += () => _dirty = true;
@@ -134,7 +154,7 @@ public sealed class MainWindow : Window
         var on = recording ? s.Recording : s.Streaming;
         var what = recording ? "recording" : "stream";
         if (on && !Dialogs.Confirm($"Stop the {what}?", recording ? "The switcher stops recording." : "The live stream ends for everyone watching.", "Stop", danger: true)) return;
-        if (!on && !Dialogs.Confirm(recording ? "Start recording?" : "Start the stream?", recording ? "The switcher starts recording." : "The switcher starts streaming to its configured service.", "Start")) return;
+        if (!on && !Dialogs.Confirm(recording ? "Start recording?" : "Start the stream?", recording ? "The switcher starts recording." : "The switcher starts streaming to the service set up on it (such as YouTube or Facebook).", "Start")) return;
         if (recording) B.Atem.SetRecording(!on); else B.Atem.SetStreaming(!on);
     }
 
@@ -179,6 +199,8 @@ public sealed class MainWindow : Window
         if (view == AppView.Operate) _operator.Refresh(); else _engineer.Refresh();
         _monitors.Refresh();
         ExposureWindow.RefreshOpen();
+        _tourButton.Visibility = view == AppView.Operate ? Visibility.Visible : Visibility.Collapsed;
+        _tour.Refresh();
     }
 
     /// <summary>The Mac's menu shortcuts, with Ctrl for ⌘, on every page (they don't clash with
@@ -218,6 +240,8 @@ public sealed class MainWindow : Window
     /// <summary>The booth keys. Returns true when the key was used.</summary>
     private bool Key(KeyEventArgs e, bool down)
     {
+        // While the tour is open, every key is the tour's: Space and Return mustn't cut or fade behind it.
+        if (_tour.IsOpen) { if (down) _tour.Key(e); return true; }
         if (down && IsActive && Shortcut(e)) return true;
         if (B.View != AppView.Operate || !IsActive) { B.ReleaseArrows(); return false; }
         if (Keyboard.FocusedElement is TextBox or PasswordBox) return false;

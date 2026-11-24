@@ -26,13 +26,13 @@ internal sealed class SetupPage : LiveView
         var col = new StackPanel();
         col.Children.Add(EngineerView.Heading("Setup", _tab switch
         {
-            "Switcher" => "The ATEM switcher Churchfront Video connects to, and the M/E the operator runs.",
-            "Sources" => "The operator's source row, left to right. Number keys 1 to 0 pick them.",
-            "Key buttons" => "On and off buttons for keys, such as lower thirds, under Fade and Cut.",
-            "Cameras" => "The PTZ cameras, the switcher input each one feeds, and how to reach them.",
+            "Switcher" => "Which ATEM switcher this app controls, and which of its mixes (M/E) the Operator screen runs.",
+            "Sources" => "The source buttons on the Operator screen, left to right. Keys 1 to 9 and 0 put them on Next.",
+            "Key buttons" => "Buttons under Fade and Cut on the Operator screen that put a graphic, such as lower thirds, on or off air.",
+            "Cameras" => "The remote-controlled cameras: their network address, how to control them, and which switcher input each one is plugged into.",
             "Claude" => "Let Claude set up and run Churchfront Video for you.",
-            "Engineer PIN" => "A PIN on the Engineer pages that could disturb the livestream.",
-            _ => "Everything here is kept in one plain file that a person or Claude can read and edit.",
+            "Engineer PIN" => "A PIN that protects the Engineer pages that could disturb the livestream.",
+            _ => "All of these settings are kept in one plain text file, which a person or Claude can read and edit.",
         }));
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 14) };
         var tabBox = new Border { Child = tabs, Background = T.SurfaceSunken, BorderBrush = T.Line, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(8), Padding = new Thickness(3), HorizontalAlignment = HorizontalAlignment.Left };
@@ -74,8 +74,8 @@ internal sealed class SetupPage : LiveView
         var find = T.Small("Find on the network…", () => FindDevices(), "Looks for ATEM switchers and Canon cameras on this computer's networks (about 4 seconds)");
         var card = T.Column(14,
             T.Row(12, Label("Address", 120), host, find, state),
-            T.Row(12, Label("Operator's M/E", 120), T.Picker($"M/E {Store.Config.Me}", mes, 140)),
-            T.Text("The switcher must be on the same network as this computer. Churchfront Video talks to it directly over UDP 9910; no Blackmagic software is needed.", 12, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 640));
+            T.Row(12, Label("Operator runs", 120), T.Picker($"M/E {Store.Config.Me}", mes, 140)),
+            T.Text("The switcher must be on the same network as this computer. Churchfront Video talks to it directly, so no Blackmagic software is needed. An M/E is one of the switcher's mixes; most switchers have one, larger ones have several.", 12, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 640));
         return T.Card(card).With(c => c.HorizontalAlignment = HorizontalAlignment.Left);
     }
 
@@ -127,7 +127,7 @@ internal sealed class SetupPage : LiveView
         if (list.Count == 0)
         {
             col.Children.Add(T.Text(Store.Config.Cameras.Any(c => c.AtemInput != null)
-                ? "Not set up yet, so the operator sees every camera's input. Add sources to choose exactly which, in what order."
+                ? "Not set up yet, so the Operator screen shows a button for every camera. Add sources to choose exactly which buttons appear, and in what order."
                 : "No sources yet.", 13, null, T.InkMuted, wrap: true).Margin(0, 0, 0, 10));
         }
         else col.Children.Add(T.Row(8, Label("", 30), Label("Switcher input", 240), Label("Label (optional)", 200), Label("Picture", 280)).Margin(0, 0, 0, 6));
@@ -149,7 +149,7 @@ internal sealed class SetupPage : LiveView
             UIElement pictureChoice = Pictures.Canon(input) != null
                 ? T.Text("🎥 The camera's own picture", 12, null, T.InkSubtle).With(t => { t.Width = 280; t.VerticalAlignment = VerticalAlignment.Center; })
                 : NdiPicker.Make(src.Ndi, "No picture", n => Store.Update(c => { if (idx < c.Sources.Count) c.Sources[idx].Ndi = n; }), 280,
-                    "An NDI source showing what this input carries, such as a PTZOptics camera or a Churchfront Screens screen sent to NDI, for its tile and the Next and Live pictures.");
+                    "A live picture of this input, sent over the network (NDI), for its button and the Next and Live pictures. For example a PTZOptics camera, or a Churchfront Screens output sent to NDI.");
             col.Children.Add(T.Row(8, key, picker, label, pictureChoice, up, down, del).Margin(0, 0, 0, 8));
         }
         var add = T.Small("+ Add a source", () =>
@@ -195,13 +195,13 @@ internal sealed class SetupPage : LiveView
             }
             var picker = T.Picker(k.Target, choices, 180);
             var preview = NdiPicker.Make(k.Ndi, "No preview", n => Store.Update(c => { if (idx < c.Keys.Count) c.Keys[idx].Ndi = n; }), 280,
-                "An NDI source with alpha showing this key, such as Churchfront Screens' lower thirds sent to NDI with alpha. It's laid over the Next and Live pictures when the key is on them.");
+                "A live picture of this graphic with a see-through background (NDI with alpha), such as Churchfront Screens' lower thirds. It's shown over the Next and Live pictures when the graphic is on them.");
             var del = T.Small("Remove", () => Store.Update(c => c.Keys.RemoveAt(idx)), danger: true);
             col.Children.Add(T.Row(8, label, picker, preview, del).Margin(0, 0, 0, 8));
         }
         col.Children.Add(T.Small("+ Add a key button", () => Store.Update(c => c.Keys.Add(new KeyButton { Label = "Lower thirds", Me = 1, Keyer = 1 })))
             .With(b => b.HorizontalAlignment = HorizontalAlignment.Left).Margin(0, 4, 0, 0));
-        col.Children.Add(T.Text("Upstream keys cut on and off; DSKs fade with their own rate.", 12, null, T.InkMuted).Margin(0, 10, 0, 0));
+        col.Children.Add(T.Text("An M/E key switches on and off instantly. A DSK (downstream key) fades on and off at the speed set on the switcher.", 12, null, T.InkMuted).Margin(0, 10, 0, 0));
         return T.Card(col);
     }
 
@@ -212,7 +212,7 @@ internal sealed class SetupPage : LiveView
         var outer = new StackPanel();
         var col = new StackPanel();
         var cams = B.Ptz.Cameras;
-        if (cams.Count == 0) col.Children.Add(T.Text("No cameras yet. Add one, or use Find on the network in the Switcher tab.", 13, null, T.InkMuted).Margin(0, 0, 0, 10));
+        if (cams.Count == 0) col.Children.Add(T.Text("No cameras yet. Add one here, or use Find on the network on the Switcher tab.", 13, null, T.InkMuted).Margin(0, 0, 0, 10));
         else col.Children.Add(T.Row(8, Label("", 10), Label("Name", 150), Label("Address", 150), Label("Control", 180), Label("Port", 70), Label("Switcher input", 200), Label("Presets", 130)).Margin(0, 0, 0, 6));
         foreach (var c in cams)
         {
@@ -231,8 +231,9 @@ internal sealed class SetupPage : LiveView
             UIElement input = S.Inputs.Count > 0 ? T.Picker(inputName, inputs, 200)
                 : T.Field(c.AtemInput?.ToString(CultureInfo.InvariantCulture) ?? "", v => Edit(x => x.AtemInput = int.TryParse(v, out var n) ? n : null), 200, "Input number");
             var presets = c.Proto == VISCAProtocol.CanonXC ? (UIElement)T.Text("From the camera", 12, null, T.InkMuted).With(t => t.Width = 130)
-                : c.Proto == VISCAProtocol.PanasonicHTTP ? T.Text("None: zoom and focus", 12, null, T.InkMuted).With(t => t.Width = 130)
-                : T.Picker($"Count from {c.FirstPreset}", new[] { ("Count from 0", (Action)(() => Edit(x => x.FirstPreset = 0))), ("Count from 1", (Action)(() => Edit(x => x.FirstPreset = 1))) }, 130);
+                : c.Proto == VISCAProtocol.PanasonicHTTP ? T.Text("None (zoom and focus only)", 12, null, T.InkMuted).With(t => t.Width = 130)
+                : T.Picker($"Count from {c.FirstPreset}", new[] { ("Count from 0", (Action)(() => Edit(x => x.FirstPreset = 0))), ("Count from 1", (Action)(() => Edit(x => x.FirstPreset = 1))) }, 130)
+                    .With(p => p.ToolTip = "Whether this camera numbers its presets from 0 or from 1. If a preset recalls the wrong position, try the other one.");
             var del = T.Small("Delete", () =>
             {
                 if (Dialogs.Confirm($"Delete {c.Name}?", "The camera and its saved shots are removed from Churchfront Video. The camera itself isn't changed.", "Delete", danger: true))
@@ -280,7 +281,7 @@ internal sealed class SetupPage : LiveView
         pass.ToolTip = saved != null ? "Saved. Type to replace it." : "Password";
         var login = T.Column(10,
             T.Caps("Camera admin login"),
-            T.Text("Only needed to delete presets stored on the Canon cameras themselves. Kept in Windows Credential Manager, never in the setup file.", 12, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 560),
+            T.Text("Only needed to delete presets saved on the Canon cameras themselves, or to wake a camera that asks for a login. Kept safely in Windows (Credential Manager), never in the settings file.", 12, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 560),
             T.Row(8, user, pass,
                 T.Primary("Save", () =>
                 {
@@ -325,7 +326,7 @@ internal sealed class SetupPage : LiveView
             _ => "Not connected yet.",
         };
         var col = T.Column(12,
-            T.Text("Connecting adds Churchfront Video to the Claude desktop app's connectors, so Claude can find your switcher and cameras, set them up, and run the booth when you ask. It changes only Churchfront Video's entry in Claude's settings.", 13, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 640),
+            T.Text("Connect the Claude desktop app to Churchfront Video, so you can ask Claude to find your switcher and cameras, set them up, or run things for you. Only Churchfront Video's own entry in Claude's settings is changed.", 13, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 640),
             T.Text(words, 13, FontWeights.SemiBold, state == ClaudeConnect.State.Connected ? T.Success : T.Ink, wrap: true).With(t => t.MaxWidth = 640),
             T.Row(8,
                 T.Primary(state == ClaudeConnect.State.Connected ? "Connect again" : "Connect Claude", () =>
@@ -388,7 +389,7 @@ internal sealed class SetupPage : LiveView
     {
         var col = T.Column(12,
             T.Text(Store.FilePath, 13, FontWeights.SemiBold, T.Ink, wrap: true),
-            T.Text("Edits saved to the file are picked up within a second. If the file has a mistake in it, Churchfront Video keeps running on the last setup that worked, and says so here.", 13, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 640),
+            T.Text("Changes saved to this file take effect within a second. If the file has a mistake in it, Churchfront Video keeps using the last settings that worked, and the problem is shown here.", 13, null, T.InkMuted, wrap: true).With(t => t.MaxWidth = 640),
             T.Row(8,
                 T.Small("Open the folder", () => Open(Path.GetDirectoryName(Store.FilePath)!)),
                 T.Small("Open in Notepad", () => { try { Process.Start(new ProcessStartInfo("notepad.exe", $"\"{Store.FilePath}\"") { UseShellExecute = true }); } catch { } })));

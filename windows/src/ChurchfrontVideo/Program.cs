@@ -109,7 +109,21 @@ public static class Program
             kt.Tick += (_, _) =>
             {
                 if (queue.Count == 0) { kt.Stop(); return; }
-                var parts = queue.Dequeue().ToLowerInvariant().Split('+');
+                var next = queue.Dequeue().ToLowerInvariant();
+                // "raw:space": a real key press sent through the window, as the keyboard would
+                // (so the tour, the PIN pad and the window's own key handling all see it).
+                if (next.StartsWith("raw:", StringComparison.Ordinal) && Enum.TryParse<System.Windows.Input.Key>(next[4..], true, out var rawKey)
+                    && PresentationSource.FromVisual(win) is PresentationSource src)
+                {
+                    var down = new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, src, 0, rawKey) { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyDownEvent };
+                    var tourWasOpen = win.TourOpen;
+                    win.RaiseEvent(down);
+                    win.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, src, 0, rawKey) { RoutedEvent = System.Windows.Input.Keyboard.PreviewKeyUpEvent });
+                    var st = Booth.Shared.Atem.State;
+                    Console.Out.WriteLine($"key {next}: tour {(tourWasOpen ? "open" : "closed")}, caught {(down.Handled ? "yes" : "no")}, live {st.ProgramOf(Booth.Shared.Me)}, next {st.PreviewOf(Booth.Shared.Me)}");
+                    return;
+                }
+                var parts = next.Split('+');
                 var mods = System.Windows.Input.ModifierKeys.None;
                 foreach (var m in parts[..^1]) mods |= m switch { "ctrl" => System.Windows.Input.ModifierKeys.Control, "shift" => System.Windows.Input.ModifierKeys.Shift, "alt" => System.Windows.Input.ModifierKeys.Alt, _ => 0 };
                 var k = parts[^1] switch { "," => System.Windows.Input.Key.OemComma, "." => System.Windows.Input.Key.OemPeriod, "1" => System.Windows.Input.Key.D1,

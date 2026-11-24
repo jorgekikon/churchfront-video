@@ -75,12 +75,12 @@ public sealed class ShotDeckView : LiveView
         var root = new DockPanel { LastChildFill = true };
         var tabs = Tabs(); DockPanel.SetDock(tabs, Dock.Top); root.Children.Add(tabs);
         var cams = Cams;
-        if (cams.Count == 0) { root.Children.Add(Note("No cameras set up yet. Add them in Engineer, Setup (Ctrl+,).")); return root; }
-        if (Shown is not PTZCamera c) { root.Children.Add(Note("Put a camera on Next to see its shots. Click a camera above.")); return root; }
+        if (cams.Count == 0) { root.Children.Add(Note("No cameras set up yet. Add them in Engineer → Setup → Cameras.")); return root; }
+        if (Shown is not PTZCamera c) { root.Children.Add(Note("Put a camera on Next to see its shots, or click a camera name above.")); return root; }
         if (!c.Proto.HasPanTilt()) { root.Children.Add(Note($"{c.Name} zooms and focuses only, so it has no shots.")); return root; }
         if (OnLive(c))
         {
-            var banner = T.Text($"⚠  {c.Name} is on Live. A shot here moves it on air, so each one asks first.", 11, FontWeights.SemiBold, T.Program, wrap: true);
+            var banner = T.Text($"⚠  {c.Name} is on Live. Picking a shot moves it while everyone is watching, so each one asks first.", 11, FontWeights.SemiBold, T.Program, wrap: true);
             banner.Margin = new Thickness(0, 0, 0, Gap);
             DockPanel.SetDock(banner, Dock.Top); root.Children.Add(banner);
         }
@@ -200,7 +200,7 @@ public sealed class ShotDeckView : LiveView
         var tile = new Border
         {
             CornerRadius = new CornerRadius(8), BorderThickness = new Thickness(1), Child = g, Cursor = Cursors.Hand,
-            RenderTransform = new TranslateTransform(), ToolTip = canDrag ? $"Click (or press {letter}) to go to this shot. Hold, then drag, to move it." : $"Click (or press {letter}) to go to this shot",
+            RenderTransform = new TranslateTransform(), ToolTip = canDrag ? $"Click (or press {letter}) to send the camera to this shot. Hold it, then drag, to change its place." : $"Click (or press {letter}) to send the camera to this shot",
         };
         var lifted = false;
         Live(() =>
@@ -303,7 +303,7 @@ public sealed class ShotDeckView : LiveView
             m.Items.Add(new Separator());
             m.Items.Add(T.Item("Delete…", () =>
             {
-                if (Dialogs.Confirm($"Delete {shot.Name}?", "The shot is removed from Churchfront Video's setup. The camera isn't changed.", "Delete", danger: true))
+                if (Dialogs.Confirm($"Delete {shot.Name}?", "The shot is removed from Churchfront Video. Nothing on the camera itself changes.", "Delete", danger: true))
                     Ptz.Edit(list => list.First(y => y.Id == c.Id).Shots.RemoveAll(y => y.Id == shot.Id));
             }, danger: true));
             return m;
@@ -312,7 +312,7 @@ public sealed class ShotDeckView : LiveView
         var preset = item.Preset; var nm = item.Name;
         m.Items.Add(T.Item("Delete from camera…", () =>
         {
-            if (Dialogs.Confirm($"Delete \"{nm}\" from {c.Name}?", "This removes it from the camera itself, for every controller that uses it. It can't be undone.", "Delete from camera", danger: true))
+            if (Dialogs.Confirm($"Delete \"{nm}\" from {c.Name}?", "This deletes the preset on the camera itself, so it's gone for everything that uses the camera, including Companion. It can't be undone.", "Delete from camera", danger: true))
                 Ptz.DeleteCameraPreset(preset, c.Id, why => { if (why != null) Dialogs.Info("Couldn't delete that preset", why); });
         }, danger: true));
         return m;
@@ -328,7 +328,7 @@ public sealed class ShotDeckView : LiveView
         g.Children.Add(col);
         var b = T.Button(g, () =>
         {
-            if (Dialogs.Prompt($"Save a shot on {c.Name}", "Pan, tilt and zoom, where the camera is pointing now.", "", "Pulpit") is string name)
+            if (Dialogs.Prompt($"Save a shot on {c.Name}", "Saves where the camera is pointing and how far it's zoomed, right now.", "", "Pulpit") is string name)
                 Ptz.SaveShot(name.Trim(), c.Id, ShotKind.Position, null, ok => { if (!ok) Dialogs.Info("Not saved", NoReading); });
         }, T.Transparent, T.Transparent, double.NaN, double.NaN, 8, new Thickness(0), $"Save where {c.Name} is pointing now as a new shot");
         b.HorizontalContentAlignment = HorizontalAlignment.Stretch; b.VerticalContentAlignment = VerticalAlignment.Stretch;
@@ -362,7 +362,7 @@ public sealed class ShotDeckView : LiveView
         left.Children.Add(T.Text($"Page {page + 1} of {pages}", 11, FontWeights.SemiBold, T.InkSubtle).With(t => { t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(8, 0, 0, 0); }));
         DockPanel.SetDock(left, Dock.Left);
         row.Children.Add(left);
-        var hint = T.Text($"Keys Q–G send {c.Name} to a shot", 11, null, T.InkSubtle); hint.VerticalAlignment = VerticalAlignment.Center;
+        var hint = T.Text($"Keys Q to G (the letters on each shot) send {c.Name} to that shot", 11, null, T.InkSubtle); hint.VerticalAlignment = VerticalAlignment.Center;
         DockPanel.SetDock(hint, Dock.Right);
         row.Children.Add(hint);
         return row;

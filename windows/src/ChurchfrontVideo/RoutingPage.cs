@@ -71,8 +71,8 @@ internal sealed class RoutingPage : LiveView
         _pics.Want(S.AuxSources.Select(i => (int?)i.Id));
 
         var col = new StackPanel();
-        col.Children.Add(EngineerView.Heading("Routing", "What each mix is for, what every screen shows and where it's wired, and the operator's routing buttons."));
-        if (S.Aux.Count == 0) col.Children.Add(T.Text("The switcher hasn't reported its outputs yet. Connect it in Setup.", 13, null, T.InkMuted).Margin(0, 0, 0, 20));
+        col.Children.Add(EngineerView.Heading("Routing", "What each screen and output is showing, and how to change it. Also what each of the switcher's mixes (M/Es) is for, and the routing buttons on the Operator screen."));
+        if (S.Aux.Count == 0) col.Children.Add(T.Text("The switcher hasn't reported its outputs yet. Check it's connected in Setup → Switcher.", 13, null, T.InkMuted).Margin(0, 0, 0, 20));
         else col.Children.Add(Schematic());
         col.Children.Add(Buttons());
         return col;
@@ -138,13 +138,13 @@ internal sealed class RoutingPage : LiveView
             if (_undo.Count == 0) return;
             var u = _undo[^1]; _undo.RemoveAt(_undo.Count - 1);
             u.Back(); _message = $"{u.What} is back to what it was.";
-        }, "Put back the last thing changed here");
+        }, "Undo the last change made on this page");
         Live(() =>
         {
             (say.Text, say.Foreground, say.FontWeight) = _selected is int sel
                 ? ($"Now click where {Store.RouteLabel(sel, S)} should go. Click it again to let go.", T.AccentStrong, FontWeights.SemiBold)
                 : _message.Length > 0 ? (_message, T.Success, FontWeights.SemiBold)
-                : ("Drag a source or a mix onto a destination, or click one and then the other. It changes right away.", T.InkSubtle, FontWeights.Normal);
+                : ("To change what a screen shows, drag a source onto it, or click the source and then the screen. It changes straight away, live.", T.InkSubtle, FontWeights.Normal);
             undo.IsEnabled = _undo.Count > 0; undo.Opacity = undo.IsEnabled ? 1 : 0.5;
         });
         var bar = new DockPanel { Margin = new Thickness(0, 0, 0, 24) };
@@ -160,7 +160,7 @@ internal sealed class RoutingPage : LiveView
         {
             var lockT = T.Text(_feedsUnlocked ? "🔓 Unlocked" : "🔒 Locked", 11, FontWeights.SemiBold, _feedsUnlocked ? T.InkMuted : T.Warning);
             var lockB = T.Button(lockT, () => _feedsUnlocked = !_feedsUnlocked, T.Transparent, T.Transparent, double.NaN, 22, 4, new Thickness(4, 0, 4, 0),
-                _feedsUnlocked ? "Lock these again" : "One of these may carry the live stream. Unlock to change them.");
+                _feedsUnlocked ? "Lock these again" : "These may carry the livestream or a recording. Unlock them only if you mean to change one.");
             DockPanel.SetDock(lockB, Dock.Right);
             row.Children.Add(lockB);
         }
@@ -178,7 +178,7 @@ internal sealed class RoutingPage : LiveView
             else if (g == RoutingEdit.Group.Inside) _showInside = !_showInside;
             else _showSpareOut = !_showSpareOut;
         }, T.Transparent, T.Transparent, double.NaN, 22, 4, new Thickness(0, 0, 6, 0),
-            g is RoutingEdit.Group.SpareIn or RoutingEdit.Group.SpareOut ? "Ports that only go to patch bay tie lines (and outputs not named yet). Click to show or hide." : "Click to show or hide");
+            g is RoutingEdit.Group.SpareIn or RoutingEdit.Group.SpareOut ? "Outputs not named yet, and ones wired only to the patch bay. Click to show or hide them." : "Click to show or hide");
         fold.HorizontalAlignment = HorizontalAlignment.Left;
         row.Children.Add(fold);
         return row;
@@ -242,7 +242,7 @@ internal sealed class RoutingPage : LiveView
         dock.Children.Add(words);
         var row = RowButton(dock, pic ? PicRowH : RowH, new Thickness(pic ? 4 : 10, 0, 6, 0),
             (id >= 1 && id <= 999 ? $"Switcher input {id}: {(S.Inputs.TryGetValue(id, out var x) ? x.Long : "")}\n" : "")
-            + "Drag onto a destination or a mix, or click this and then click where it should go");
+            + "Drag this onto a screen or a mix, or click it and then click where it should go");
         _srcEls[id] = row;
         PickUp(row, id);
         return row;
@@ -255,7 +255,7 @@ internal sealed class RoutingPage : LiveView
         var title = new DockPanel { Height = 28 };
         var pencil = T.Button(T.Text("✎", 14, null, T.InkMuted), () =>
         {
-            if (Dialogs.Prompt($"What M/E {me + 1} is for", "Such as Live stream or Side screens. It's how this mix is named on every page and to Claude.",
+            if (Dialogs.Prompt($"What M/E {me + 1} is for", "Such as Live stream or Side screens. This name is used for the mix on every page, and by Claude.",
                     me < Store.Config.MixNames.Count ? Store.Config.MixNames[me] : "", "Live stream") is string n)
                 Store.Update(c =>
                 {
@@ -266,7 +266,7 @@ internal sealed class RoutingPage : LiveView
         }, T.Transparent, T.Transparent, 26, 26, 4, new Thickness(0), "Name what this mix is for");
         DockPanel.SetDock(pencil, Dock.Right);
         title.Children.Add(pencil);
-        var hint = T.Text(mine ? "Run from Operator" : "Drop a source to put it live", 12, null, T.InkSubtle);
+        var hint = T.Text(mine ? "Run from Operator" : "Drop a source here to put it on Live", 12, null, T.InkSubtle);
         hint.VerticalAlignment = VerticalAlignment.Center; hint.Margin = new Thickness(0, 0, 6, 0);
         DockPanel.SetDock(hint, Dock.Right);
         title.Children.Add(hint);
@@ -316,7 +316,7 @@ internal sealed class RoutingPage : LiveView
         var dock = new DockPanel { LastChildFill = true };
         var named = RoutingEdit.IsNamed(Store.Config, sc);
         var pencil = T.Button(T.Text("✎", 14, null, T.InkMuted), () => EditScreen(sc), T.Transparent, T.Transparent, 28, 28, 4, new Thickness(0),
-            named ? "Change the name, outputs or wiring note" : "Name this output");
+            named ? "Change its name, which outputs it uses, or its wiring note" : "Name this output");
         DockPanel.SetDock(pencil, Dock.Right);
         dock.Children.Add(pencil);
         if (locked) { var l = T.Text("🔒", 12, null, T.Warning).With(t => { t.VerticalAlignment = VerticalAlignment.Center; t.Margin = new Thickness(4, 0, 4, 0); }); DockPanel.SetDock(l, Dock.Right); dock.Children.Add(l); }
@@ -340,7 +340,7 @@ internal sealed class RoutingPage : LiveView
                               : new DockPanel { VerticalAlignment = VerticalAlignment.Center }.With(d => { DockPanel.SetDock(showing, Dock.Right); showing.Margin = new Thickness(8, 0, 4, 0); d.Children.Add(showing); d.Children.Add(name); }));
         var row = RowButton(dock, pic ? PicRowH : RowH, new Thickness(6, 0, 2, 0),
             $"{sc.Name}, switcher output {string.Join(", ", sc.Aux)}" + (string.IsNullOrEmpty(sc.Note) ? "" : "\n" + sc.Note)
-            + (locked ? "\nLocked. Unlock Encoders and feeds to change it." : "\nClick a source or a mix first, then this, to send it here."));
+            + (locked ? "\nLocked. To change it, unlock Encoders and feeds first." : "\nTo send a picture here, click a source or a mix first, then this."));
         row.AllowDrop = true;
         _dstEls.Add((sc, row));
         row.MouseEnter += (_, _) => _hover = RoutingEdit.Now(sc, S).Source;
@@ -518,12 +518,12 @@ internal sealed class RoutingPage : LiveView
             return c;
         }
         var col = T.Column(12, T.Text(named ? $"Edit {sc.Name}" : $"Name {auxLabel}", 15, FontWeights.Bold),
-            Field("Name", name), Field("Aux outputs", aux, "Counted from 1. Several, such as 4, 5, switch together."), Field("Wiring note", note));
+            Field("Name", name), Field("Aux outputs", aux, "The switcher's aux output numbers, counted from 1. Give several (such as 4, 5) to switch them together."), Field("Wiring note", note));
         bool? volunteer = sc.ForVolunteers, pinned = Store.PinnedScreens.Any(p => p.Id == sc.Id);
         if (named)
         {
-            col.Children.Add(T.Check("Preview in the top bar", pinned == true, v => pinned = v).With(c => c.ToolTip = "A small live picture of what this is showing, in the bar across the top. Up to four."));
-            col.Children.Add(T.Check("Show to operators", volunteer == true, v => volunteer = v).With(c => c.ToolTip = "Off for encoders, recorders and patch bay feeds: they move to Encoders and feeds, locked, and Claude needs to be told to change them."));
+            col.Children.Add(T.Check("Preview in the top bar", pinned == true, v => pinned = v).With(c => c.ToolTip = "Show a small live picture of this in the bar across the top of the app (up to four)."));
+            col.Children.Add(T.Check("Show to operators", volunteer == true, v => volunteer = v).With(c => c.ToolTip = "Turn this off for outputs feeding an encoder, a recorder or the patch bay. They then sit, locked, under Encoders and feeds, and Claude only changes them when told to."));
         }
         col.Children.Add(problem);
         void Save()
@@ -546,7 +546,7 @@ internal sealed class RoutingPage : LiveView
             {
                 Store.Update(c => c.Screens.RemoveAll(x => x.Id == sc.Id));
                 win.Close();
-            }, "The output stays; it goes back to Spare outputs, not named yet.", danger: true);
+            }, "The output itself isn't changed; it just goes back to Spare outputs, without a name.", danger: true);
             DockPanel.SetDock(forget, Dock.Left);
             buttons.Children.Add(forget);
         }
@@ -565,13 +565,13 @@ internal sealed class RoutingPage : LiveView
     private UIElement Buttons()
     {
         var col = new StackPanel();
-        var add = T.Small("Save the current routing as a button…", NewButton, "Pick screens; the button sets them to what they show now");
+        var add = T.Small("Save the current routing as a button…", NewButton, "Choose screens; the new button will set them back to what they show right now");
         var head = new DockPanel { Margin = new Thickness(0, 0, 0, 6) };
         DockPanel.SetDock(add, Dock.Right);
         head.Children.Add(add);
         head.Children.Add(T.Caps("Operator routing buttons").With(t => t.VerticalAlignment = VerticalAlignment.Center));
         col.Children.Add(head);
-        col.Children.Add(T.Text("Buttons on Operator, under Screens. Each one sends one or more screens a picture, like a macro, and lights up while the screens match it. The easy way to make one: route the screens the way you want above, then save that as a button.",
+        col.Children.Add(T.Text("Buttons on the Operator screen, under Screens. Each one sets one or more screens at once, and lights up while the screens show what it sets. The easy way to make one: set the screens the way you want above, then click Save the current routing as a button.",
             12, null, T.InkMuted, wrap: true).Margin(0, 0, 0, 10));
         var routes = Store.Config.Routes;
         if (routes.Count == 0) col.Children.Add(T.Text("No buttons yet.", 13, null, T.InkSubtle));
@@ -587,7 +587,7 @@ internal sealed class RoutingPage : LiveView
             var tools = T.Row(2, T.Small("Run now", () => r.Run(B.Atem)),
                 Icon("◀", () => Store.Update(c => RoutingEdit.MoveButton(c, idx, -1)), "Move earlier", idx > 0),
                 Icon("▶", () => Store.Update(c => RoutingEdit.MoveButton(c, idx, 1)), "Move later", idx < routes.Count - 1),
-                Icon("🗑", () => { if (Dialogs.Confirm($"Remove {r.Label}?", "The button goes from Operator. The screens aren't changed.", "Remove", danger: true)) Store.Update(c => { if (idx < c.Routes.Count) c.Routes.RemoveAt(idx); }); }, "Remove this button"));
+                Icon("🗑", () => { if (Dialogs.Confirm($"Remove {r.Label}?", "The button is removed from the Operator screen. What the screens show doesn't change.", "Remove", danger: true)) Store.Update(c => { if (idx < c.Routes.Count) c.Routes.RemoveAt(idx); }); }, "Remove this button"));
             var card = T.Card(T.Column(8, T.Row(8, label, on), detail, tools), 12);
             card.Width = 300; card.Margin = new Thickness(0, 0, 12, 12);
             Live(() =>
@@ -620,7 +620,7 @@ internal sealed class RoutingPage : LiveView
             var id = sc.Id;
             list.Children.Add(T.Check($"{sc.Name}  ←  {Store.Showing(sc, S)}", false, v => { if (v) picked.Add(id); else picked.Remove(id); }).Margin(0, 2, 0, 2));
         }
-        if (Store.Config.Screens.Count == 0) list.Children.Add(T.Text("Name the screens first, with the pencil on each output.", 12, null, T.Warning, wrap: true));
+        if (Store.Config.Screens.Count == 0) list.Children.Add(T.Text("First give the screens names, with the pencil on each output.", 12, null, T.Warning, wrap: true));
         var problem = T.Text("", 12, FontWeights.SemiBold, T.Warning, wrap: true);
         void Save()
         {

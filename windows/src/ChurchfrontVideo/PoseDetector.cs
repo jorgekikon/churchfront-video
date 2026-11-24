@@ -58,7 +58,7 @@ public sealed class PoseDetector : IPersonDetector, IDisposable
         var path = Places().FirstOrDefault(File.Exists);
         if (path == null)
         {
-            why = $"Auto tracking needs its body-pose model, {FileName}, in a \"models\" folder next to ChurchfrontVideo.exe or in {Path.Combine(ConfigStore.Folder, "models")}. Run get-model.ps1 from the windows folder of the source to fetch it.";
+            why = $"Auto tracking needs its body-pose model, {FileName}, in a \"models\" folder next to ChurchfrontVideo.exe or in {Path.Combine(ConfigStore.Folder, "models")}. It's missing, so auto tracking and stage scan are off. Whoever installed this app can fetch it with get-model.ps1.";
             return null;
         }
         try

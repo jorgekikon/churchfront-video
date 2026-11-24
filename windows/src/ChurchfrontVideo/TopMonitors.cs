@@ -31,9 +31,9 @@ public sealed class TopMonitors : LiveView
         if (B.View != AppView.Operate)
         {
             row.Children.Add(Monitor(() => S.ProgramOf(B.Me), () => Store.Label(S.ProgramOf(B.Me), S), ("LIVE", T.Program, Brushes.White),
-                "Live now. Click to go to Operator.", () => B.View = AppView.Operate));
+                "What's on Live now. Click to go to the Operator screen.", () => B.View = AppView.Operate));
             row.Children.Add(Monitor(() => S.PreviewOf(B.Me), () => Store.Label(S.PreviewOf(B.Me), S), ("NEXT", T.Preview, T.OnAction),
-                "On Next. Click to go to Operator.", () => B.View = AppView.Operate));
+                "What's on Next. Click to go to the Operator screen.", () => B.View = AppView.Operate));
             if (pinned.Count > 0) row.Children.Add(new Border { Width = 1, Height = 52, Background = T.Line, Margin = new Thickness(4, 0, 12, 0) });
         }
         foreach (var sc in pinned)

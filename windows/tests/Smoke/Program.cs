@@ -207,6 +207,22 @@ try
         try { File.Delete(lockFile); } catch { }
     }
 
+    // MARK: First run: no setup file before → the Operator tour opens (a throwaway folder and booth)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"cv-first-{Guid.NewGuid():N}");
+        var file = Path.Combine(dir, "config.json");
+        var first = new ConfigStore(file, readOnly: false);
+        OnMain(() => { first.Attach(new Booth()); return 0; });
+        Check(first.StartedFresh && File.Exists(file), "a new install (no setup file) counts as a first run, and the file is made");
+        var second = new ConfigStore(file, readOnly: false);
+        OnMain(() => { second.Attach(new Booth()); return 0; });
+        Check(!second.StartedFresh, "the next start isn't a first run");
+        var test = new ConfigStore(Path.Combine(dir, "other.json"), readOnly: true);
+        OnMain(() => { test.Attach(new Booth()); return 0; });
+        Check(!test.StartedFresh, "a self-test never counts as a first run");
+        try { Directory.Delete(dir, true); } catch { }
+    }
+
     // MARK: Canon standby (put there after services, from Companion) and waking it
     Check(Wait(() => ptz.Power.GetValueOrDefault(canon.Id) == "idle") && OnMain(() => ptz.Sleeping.Count == 0), "reads a Canon's power state: awake");
     r = Tool("wake_cameras");

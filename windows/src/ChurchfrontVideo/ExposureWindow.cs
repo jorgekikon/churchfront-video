@@ -66,11 +66,11 @@ public sealed class ExposureWindow : Window
             col.Children.Add(WhiteBalance());
             var x0 = Ptz.Exposure[_id];
             var actions = new WrapPanel();
-            if (x0.HasAutoMode) actions.Children.Add(T.Small("Auto exposure", () => Ptz.AutoExposure(_id), "The camera sets gain, shutter and iris itself").Margin(0, 0, 8, 8));
+            if (x0.HasAutoMode) actions.Children.Add(T.Small("Auto exposure", () => Ptz.AutoExposure(_id), "Let the camera set its own brightness (gain, shutter and iris)").Margin(0, 0, 8, 8));
             actions.Children.Add(T.Small("Read again", () => Ptz.RefreshExposure(_id), "Read the camera's exposure now, if someone changed it elsewhere").Margin(0, 0, 8, 8));
             actions.Children.Add(T.Small("Save as exposure shot…", () =>
             {
-                if (Dialogs.Prompt($"Save exposure on {c.Name}", "Gain, shutter, iris and white balance, as the camera has them now.", "", "Bright stage") is string n)
+                if (Dialogs.Prompt($"Save exposure on {c.Name}", "Saves the camera's current brightness and colour settings (gain, shutter, iris and white balance), to put back later with one click.", "", "Bright stage") is string n)
                     Ptz.SaveShot(n, _id, ShotKind.Exposure, null, ok => { if (!ok) Dialogs.Info("Not saved", "The camera didn't report its exposure."); });
             }).Margin(0, 0, 8, 8));
             col.Children.Add(actions.Margin(0, 6, 0, 0));
@@ -88,7 +88,7 @@ public sealed class ExposureWindow : Window
                     var m = T.Menu();
                     m.Items.Add(T.Item("Delete…", () =>
                     {
-                        if (Dialogs.Confirm($"Delete {shot.Name}?", "The shot is removed from Churchfront Video's setup.", "Delete", danger: true))
+                        if (Dialogs.Confirm($"Delete {shot.Name}?", "The saved exposure is removed from Churchfront Video. The camera isn't changed.", "Delete", danger: true))
                             Ptz.Edit(list => list.First(y => y.Id == _id).Shots.RemoveAll(y => y.Id == shot.Id));
                     }, danger: true));
                     b.ContextMenu = m;

@@ -286,6 +286,42 @@ After services the Canons are put in standby from Companion. The app now powers 
 - Checked: smoke tests against the fake Canon, the app's buttons clicked against it, and both Wake and Standby
   used on the real Canons on 2026-11-24.
 
+## Guided tour of the Operator screen (2026-11-24, Windows only)
+- The tour is 16 cards, dimming everything except one part of the screen at a time, in working order:
+  1. Welcome.
+  2. Live.
+  3. Next.
+  4. Step 1: the source buttons.
+  5. The camera on Next, and Exposure.
+  6. The shot deck.
+  7. Step 2: the joystick, zoom and Focus.
+  8. Track.
+  9. Camera speed.
+  10. Step 3: Fade and Cut.
+  11. Black and the key buttons.
+  12. Screens (skipped if there are no routing buttons).
+  13. The connection.
+  14. Record, Stream and Wake.
+  15. Engineer.
+  16. The rhythm of a service.
+- It opens by itself on a first run: `ConfigStore.StartedFresh`, set when there was no config.json and one
+  was made; never in a self-test. Otherwise it opens from the "? Tour" button in the top bar, which shows
+  only on Operator.
+- While it's open, the overlay takes every click and key, so nothing behind it is pressed (`MainWindow.Key`
+  hands keys to the tour first). Arrows or Return move, and Esc ends.
+- Code:
+  - `src/ChurchfrontVideo/Tour.cs` holds the steps and the overlay.
+  - Parts of the screen are found by name with `Tour.Mark(element, "name")`, set in OperatorView and
+    MainWindow. To point at something new, mark it and add a step.
+- Self-tests:
+  - `CUEVIDEO_TOUR=1` opens the tour.
+  - `CUEVIDEO_KEYS` takes `raw:<key>` (for example raw:space). It sends a real key event through the window
+    and logs whether something caught it, plus Live and Next.
+- Checked:
+  - 3 smoke checks for the first-run rule.
+  - Every card stepped through and looked at in a test copy, and the Tour button used.
+  - Space and Return with the tour open: caught, no cut. After Esc, Space cut.
+
 ## Engineer PIN (2026-11-24, Windows only)
 - A 4–8 digit PIN on the Engineer pages that could disturb the livestream: Stage scan, Routing, Full switcher
   and Setup. Status stays open. With no PIN set (the default), everything is open as before.
